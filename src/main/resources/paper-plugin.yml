@@ -1,0 +1,11 @@
+name: Geckonomy
+description: $description
+prefix: Geckonomy
+version: '${version}'
+
+main: com.the1mason.geckonomy.Geckonomy
+api-version: '26.1.1'
+load: STARTUP
+
+authors: [ the1mason ]
+website: the1mason.com
