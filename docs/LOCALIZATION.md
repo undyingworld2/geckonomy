@@ -32,6 +32,9 @@ error:
   unknown-currency: "<prefix><red>Unknown currency: <white><currency></white>.</red>"
   invalid-amount: "<prefix><red>Invalid amount.</red>"
   account-not-found: "<prefix><red>No account for <white><target></white>.</red>"
+  no-currency-permission: "<prefix><red>You can't use <white><currency></white> here.</red>"
+  not-transferable: "<prefix><red><white><currency></white> can't be paid to other players.</red>"
+  others-hidden: "<prefix><red>You can't view others' <white><currency></white> balance.</red>"
 admin:
   given: "<prefix><green>Gave <white><formatted></white> to <white><target></white>.</green>"
   set: "<prefix><green>Set <white><target></white>'s balance to <white><formatted></white>.</green>"

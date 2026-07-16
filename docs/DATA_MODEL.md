@@ -23,10 +23,12 @@ PK: `id`.
 |---|---|---|
 | `account_id` | `TEXT` / `BINARY(16)` | FK → `gk_account.id`. |
 | `currency_code` | `TEXT` / `VARCHAR(32)` | Currency code (lowercase). |
+| `scope_key` | `TEXT` / `VARCHAR(64)` | `@global` for `network` currencies; the config `server-id` for `server` (per-server) currencies. See §7. |
 | `amount` | `TEXT` / `DECIMAL(38,10)` | See §3 — SQLite stores a normalized decimal string. |
 
-PK: `(account_id, currency_code)`. **No world column** — balances are global.
-Index: `(currency_code, amount)` to support `/baltop`.
+PK: `(account_id, currency_code, scope_key)`. **No world column** — balances are never per-world; they
+are either network-wide (`@global`) or per-server (`server-id`).
+Index: `(currency_code, scope_key, amount)` to support `/baltop`.
 
 ### `gk_transaction` (audit ledger, append-only)
 | Column | Type | Notes |
@@ -34,6 +36,7 @@ Index: `(currency_code, amount)` to support `/baltop`.
 | `id` | `TEXT` / `BINARY(16)` | Transaction UUID (PK). |
 | `account_id` | `TEXT` / `BINARY(16)` | Subject account. |
 | `currency_code` | `TEXT` / `VARCHAR(32)` | |
+| `scope_key` | `TEXT` / `VARCHAR(64)` | `@global` or `server-id` (matches the balance touched). |
 | `delta` | `TEXT` / `DECIMAL(38,10)` | Signed change. |
 | `resulting_balance` | `TEXT` / `DECIMAL(38,10)` | Balance after. |
 | `type` | `TEXT` / `VARCHAR(16)` | DEPOSIT/WITHDRAW/SET/TRANSFER_IN/TRANSFER_OUT. |
@@ -101,5 +104,57 @@ PK: `(account_id, member_id)`. Empty in v1.
 ## 6. Account lifecycle
 
 - Auto-create on first join (async), seeding one `gk_balance` row per currency at `starting-balance`.
+  The seeded row's `scope_key` is resolved per §7 (per-server currencies seed only for **this**
+  server's `server-id`; a network currency seeds one `@global` row).
 - Delete removes `gk_balance` rows; `gk_transaction` retention is config-driven (default: keep for
   audit).
+
+## 7. Currency scope (per-server vs network)
+
+Each currency has a `scope` (`CONFIGURATION.md`): `network` or `server`. This is resolved to the
+`scope_key` used in `gk_balance`/`gk_transaction`:
+
+| Currency `scope` | `scope_key` | Meaning |
+|---|---|---|
+| `network` | `@global` (constant) | One balance shared by every server pointed at this DB. |
+| `server` | the config `settings.server-id` | Balance is private to this server instance. |
+
+- The scope key is derived by the persistence layer from the resolved `Currency` + config `server-id`;
+  callers (use cases, Vault adapter) pass only account + currency, never a scope key.
+- On a **shared MariaDB**, this lets several servers coexist: they share `network` balances and keep
+  independent `server` balances (distinguished by `server-id`).
+- On **local SQLite** (single server) the distinction is cosmetic — all rows use that one `server-id` or
+  `@global` — but the schema is identical so a server can be migrated onto a shared DB later.
+- `/baltop` for a per-server currency ranks only this server's rows (`scope_key = server-id`); for a
+  network currency it ranks the `@global` rows.
+- **Live cross-server propagation** (network currency changed on server A → refresh server B's online
+  mirror) is deferred; see `ARCHITECTURE.md §4` for the interim read-through rule and `ROADMAP.md`
+  (future: Redis sync).
+
+## 8. Player identity & UUID resolution
+
+Accounts are keyed by **`player.uniqueId`** (`AccountId`) — never by name. The name is stored only for
+display and the UUID→name map (`getUUIDNameMap`), refreshed on join.
+
+**Two directions, not to be confused:**
+- **UUID → name:** served from `gk_account`; display only, never decides identity.
+- **name → UUID** (`PlayerResolver`, for legacy `String` methods and `/pay <name>` etc.): resolved
+  **without blocking Mojang lookups**, in order — exact online player → Bukkit offline-player cache →
+  `gk_account` reverse lookup → give up (`false`/`FAILURE`).
+
+**Network-currency correctness depends on network-wide UUID consistency** (same player → same UUID on
+every server sharing the DB). This is a **deployment precondition**, not something the plugin enforces:
+- **Online mode:** Mojang UUIDs — globally stable; survive name changes. ✅
+- **Offline mode:** UUID is `UUID.nameUUIDFromBytes("OfflinePlayer:" + name)` — a deterministic hash of
+  the exact username, identical on every Spigot/Paper server. So **two offline servers produce the same
+  UUID for the same username** ✅ — but identity is the *username*: case-sensitive, changes with the
+  name, and **unverified** (offline mode has no auth — anyone can log in as any name and access that
+  balance).
+- **Do not mix** online and offline servers in one network — the same player gets different UUIDs
+  (Mojang vs hashed) → different accounts/balances.
+- **Proxies (BungeeCord/Velocity):** backends run `online-mode=false` but the proxy forwards the *real*
+  UUID (IP-forwarding / modern forwarding). With forwarding correctly and consistently enabled on all
+  backends, UUIDs match. Inconsistent forwarding is the main real-world break.
+
+Geckonomy simply trusts `player.uniqueId` as provided by the server/proxy; correct for all-online,
+all-offline, or a properly-forwarded proxy network.

@@ -6,8 +6,11 @@
 
 ## Create (`infrastructure/config`)
 - `StorageConfig` (type, sqlite file, mariadb host/port/db/user/pass, properties, pool sizes).
-- `CurrencyConfig` (one per currency entry) and mapping to `domain.model.Currency`.
-- `SettingsConfig` (language, allow-overdraft, rounding-mode, keep-transaction-history, baltop-size).
+- `CurrencyConfig` (one per currency entry) and mapping to `domain.model.Currency` — including
+  `scope` (`network|server` → `CurrencyScope`), `transferable`, `balance-check-others`,
+  `show-in-baltop`.
+- `SettingsConfig` (**server-id**, language, allow-overdraft, rounding-mode, keep-transaction-history,
+  baltop-size).
 - `GeckonomyConfig` aggregate + `ConfigLoader` that reads `config.yml`, validates, and produces typed
   objects.
 - Default `resources/config.yml` matching `CONFIGURATION.md`.
@@ -19,6 +22,7 @@
 ## Validation (fail fast → disable plugin)
 - `storage.type` valid + required fields present.
 - currencies non-empty; **exactly one** default; unique well-formed codes; `fractional-digits ≥ 0`.
+- `scope` ∈ {`network`, `server`}; `server-id` non-empty (warn if left default with a network currency).
 - `rounding-mode` parses to `RoundingMode`.
 - Clear, actionable error messages; on failure, log and disable.
 

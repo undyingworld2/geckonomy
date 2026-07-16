@@ -24,15 +24,23 @@ Definition of a currency (loaded from config, held by `CurrencyRegistry`).
 ```kotlin
 data class Currency(
     val code: CurrencyCode,
-    val singular: String,       // "Coin"
-    val plural: String,         // "Coins"
-    val symbol: String,         // "$"
-    val fractionalDigits: Int,  // 2  (0 = whole units only)
+    val singular: String,        // "Coin"
+    val plural: String,          // "Coins"
+    val symbol: String,          // "$"
+    val fractionalDigits: Int,   // 2  (0 = whole units only)
     val startingBalance: BigDecimal,
     val isDefault: Boolean,
-    val format: String          // display template, see LOCALIZATION.md
+    val scope: CurrencyScope,    // NETWORK (shared across servers) | SERVER (per-server)
+    val transferable: Boolean,   // may players /pay this currency
+    val checkableOthers: Boolean,// may players view others' balance in this currency
+    val showInBaltop: Boolean,
+    val format: String           // display template, see LOCALIZATION.md
 )
+enum class CurrencyScope { NETWORK, SERVER }
 ```
+The `transferable` / `checkableOthers` / `showInBaltop` flags are hard, server-wide rules enforced by
+the command layer (in addition to per-currency permission nodes). `scope` decides how balances are keyed
+(see below).
 
 ### `Money`
 An amount bound to a currency. All monetary arithmetic goes through here.
@@ -116,5 +124,10 @@ Defined in `domain.port`, implemented in `infrastructure` (see `ARCHITECTURE.md 
 
 - `AccountType.SHARED` and the `counterparty`/ownership concepts are placeholders so shared/bank
   accounts slot in without reshaping `Account`.
-- No `world` dimension in the model — global balances by decision. If per-world lands later it becomes a
-  new coordinate on `Balance` and the repositories, leaving `Money`/`Currency` untouched.
+- **Currency scope vs storage key:** the domain only knows a currency's `scope` (`NETWORK`/`SERVER`).
+  The concrete *scope key* stored in the DB (`@global` or the server-id) is resolved by the
+  **infrastructure** layer, which owns the config `server-id`. Domain/application code passes only
+  account + currency; it never handles a server id. This keeps the "which server" concern out of the
+  pure model.
+- No `world` dimension in the model — balances are per-server or network, never per-world. If per-world
+  ever lands it becomes a new coordinate on the repositories, leaving `Money`/`Currency` untouched.

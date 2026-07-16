@@ -35,6 +35,8 @@ Geckonomy without knowing its storage or internals.
 | **Money** | An amount bound to a currency (`BigDecimal` + `Currency`). |
 | **Balance** | The amount an account holds in one currency. |
 | **Default currency** | The currency used when a caller does not specify one. |
+| **Currency scope** | Whether a currency's balances are `network` (shared across all servers on the same DB) or `server` (private to one server instance). |
+| **Server id** | Config value identifying this server instance; the scope key for per-server currencies. |
 | **Provider** | Geckonomy's implementation of the Vault `Economy` service. |
 | **Ledger / transaction** | An immutable audit record of a balance change. |
 | **Mirror** | In-memory balance snapshot for online players, used only by the synchronous Vault path. |
@@ -63,6 +65,11 @@ Geckonomy without knowing its storage or internals.
 - FR-C2 Exactly one currency is the default; validation fails startup if zero or more than one.
 - FR-C3 Expose currency list, default currency, singular/plural names, symbol, and fractional digits.
 - FR-C4 Reject operations against unknown currency codes with a typed error.
+- FR-C5 Each currency has a **scope**: `network` (balance shared by all servers on the same DB) or
+  `server` (balance private to this server instance, keyed by `server-id`). Balances are keyed
+  accordingly; a shared DB keeps per-server balances independent and network balances shared.
+- FR-C6 Each currency carries command flags — `transferable`, `balance-check-others`, `show-in-baltop`
+  — that hard-gate the corresponding player commands regardless of permissions.
 
 ### 4.3 Balances & transactions
 - FR-B1 Get an account's balance in a currency (default currency if unspecified).
@@ -82,11 +89,18 @@ Geckonomy without knowing its storage or internals.
   `false`/empty/`NOT_IMPLEMENTED` gracefully.
 - FR-V4 Map internal results to `EconomyResponse` / `MultiEconomyResponse`.
 - FR-V5 The synchronous Vault path must not block the main thread for online players (§ mirror).
+- FR-V6 **Also** implement and register the **legacy** `net.milkbowl.vault.economy.Economy` (v1)
+  provider from v1, delegating to the same services. Single-currency (default currency); `double`
+  amounts converted via `BigDecimal`; `OfflinePlayer`/name identifiers resolved to UUID without blocking
+  Mojang lookups; bank methods `NOT_IMPLEMENTED` and `hasBankSupport()=false`.
 
 ### 4.5 Commands (see §7)
 - FR-CMD1 Players check balances and pay others.
 - FR-CMD2 Admins give/take/set/reset balances and reload config.
 - FR-CMD3 Baltop lists richest accounts per currency.
+- FR-CMD4 `balance`, `pay`, and `baltop` are gated by **per-currency permission nodes** in addition to
+  base command nodes; players can be allowed some currencies and denied others.
+- FR-CMD5 `/balance` is also reachable as `/bal`.
 
 ### 4.6 Localization
 - FR-L1 All player-facing text comes from language files (no hard-coded strings).
@@ -114,26 +128,38 @@ Geckonomy without knowing its storage or internals.
 | Capability | v1 value | Notes |
 |---|---|---|
 | Multi-currency | ✅ true | Config-defined currencies |
-| Shared accounts | ❌ false | Reserved; schema ready |
+| Currency scope (per-server / network) | ✅ | Each currency is `server`- or `network`-scoped; schema keys balances accordingly |
+| Shared accounts (VaultUnlocked banks) | ❌ false | Reserved; `gk_account_member` schema ready |
 | Async | ✅ true | `AsyncEconomy` provided |
 | Per-world balances | ❌ | `world` param accepted, ignored |
-| Bank/legacy Vault bridge | ❌ | Future |
+| Cross-server live sync | ❌ | Network-scoped balances share a DB, but live propagation (Redis) is future; interim read-through (see `ARCHITECTURE.md §4`) |
+| Legacy Vault (v1) `Economy` provider | ✅ v1 | Register the *original* `net.milkbowl.vault.economy.Economy` (bundled in VaultUnlockedAPI) alongside v2, for the many plugins still bound to it. Single-currency → default currency. |
+| Legacy Vault (v1) bank methods | ❌ | `hasBankSupport()=false`; bank methods return `NOT_IMPLEMENTED` (banks deferred; distinct from VaultUnlocked shared accounts) |
 
 ## 7. Commands & permissions
 
-| Command | Description | Permission |
-|---|---|---|
-| `/balance [player] [currency]` | Show own or another's balance | `geckonomy.balance` (+`.others`) |
-| `/pay <player> <amount> [currency]` | Transfer to another player | `geckonomy.pay` |
-| `/baltop [currency]` | Richest accounts | `geckonomy.baltop` |
-| `/eco give <player> <amount> [currency]` | Add balance | `geckonomy.admin` |
-| `/eco take <player> <amount> [currency]` | Remove balance | `geckonomy.admin` |
-| `/eco set <player> <amount> [currency]` | Set balance | `geckonomy.admin` |
-| `/eco reset <player> [currency]` | Reset to starting balance | `geckonomy.admin` |
-| `/geckonomy reload` | Reload config & languages | `geckonomy.admin` |
-| `/geckonomy version` | Show version | `geckonomy.admin` |
+| Command (aliases) | Description | Base permission | Per-currency permission |
+|---|---|---|---|
+| `/balance` (`/bal`) `[player] [currency]` | Show own or another's balance | `geckonomy.balance` (+`.others`) | `geckonomy.balance.<code>` (+`.others.<code>`) |
+| `/pay <player> <amount> [currency]` | Transfer to another player | `geckonomy.pay` | `geckonomy.pay.<code>` |
+| `/baltop [currency]` | Richest accounts | `geckonomy.baltop` | `geckonomy.baltop.<code>` |
+| `/eco give <player> <amount> [currency]` | Add balance | `geckonomy.admin` | — |
+| `/eco take <player> <amount> [currency]` | Remove balance | `geckonomy.admin` | — |
+| `/eco set <player> <amount> [currency]` | Set balance | `geckonomy.admin` | — |
+| `/eco reset <player> [currency]` | Reset to starting balance | `geckonomy.admin` | — |
+| `/geckonomy reload` | Reload config & languages | `geckonomy.admin` | — |
+| `/geckonomy version` | Show version | `geckonomy.admin` | — |
 
-Defaults: player commands `true`; admin `op`.
+**Per-currency permissions.** For `balance`, `pay`, and `baltop`, a currency is usable only when the
+player holds **both** the base node **and** the per-currency node (`geckonomy.pay.coins`,
+`geckonomy.balance.others.gems`, …; wildcards `geckonomy.pay.*` etc. supported). In addition, currency
+config flags are hard gates independent of permissions: `transferable: false` disables `/pay` for that
+currency entirely, `balance-check-others: false` hides others' balance in it, `show-in-baltop: false`
+excludes it from `/baltop`. Admin `/eco` bypasses per-currency permission nodes (but should respect the
+existence of the currency).
+
+Defaults: `.<code>` per-currency nodes default `true` (opt-out model); base player commands `true`;
+admin `op`.
 
 ## 8. Acceptance (v1 done)
 
@@ -145,9 +171,12 @@ Defaults: player commands `true`; admin `op`.
 
 ## 9. Reserved features (post-v1)
 
-Shared/bank accounts + `AccountPermission`; cross-server sync (Redis); per-world economies; per-player
-language; PlaceholderAPI expansion; transaction-history command; importers; legacy Vault bridge. Schema
-and interfaces are shaped so these land without breaking v1 contracts.
+Shared/bank accounts + `AccountPermission` (incl. legacy v1 bank methods); cross-server live sync
+(Redis); per-world economies; per-player language; PlaceholderAPI expansion; transaction-history
+command; importers. Schema and interfaces are shaped so these land without breaking v1 contracts.
+
+_(Note: the legacy v1 `Economy` **player** API ships in v1 — see §6 capability matrix and FR-V6 — only
+its bank methods are deferred with shared accounts.)_
 
 See also: `ARCHITECTURE.md`, `DOMAIN_MODEL.md`, `DATA_MODEL.md`, `VAULT_INTEGRATION.md`,
 `CONFIGURATION.md`, `LOCALIZATION.md`, `ROADMAP.md`.

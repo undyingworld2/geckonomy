@@ -29,8 +29,9 @@ Pure model + ports, fully unit-tested.
 
 ### M2 — Config & currency registry  ·  `tasks/M2-config-currencies.md`
 - `config.yml` schema + typed loader + validation (§CONFIGURATION).
-- `CurrencyRegistry` from config; default-currency validation.
-- `StorageConfig`, `SettingsConfig`; `/geckonomy reload` plumbing (config side).
+- `CurrencyRegistry` from config; default-currency validation; currency `scope` + command flags
+  (`transferable`, `balance-check-others`, `show-in-baltop`).
+- `StorageConfig`, `SettingsConfig` (incl. `server-id`); `/geckonomy reload` plumbing (config side).
 - **Depends on:** M1
 - **Done when:** valid config loads to typed objects; invalid config disables the plugin with a clear
   error; currency registry returns default + by-code.
@@ -40,11 +41,12 @@ Pure model + ports, fully unit-tested.
 - `SqlDialect` (+ `SqliteDialect`, `MariaDbDialect`): identifiers, upserts, money encode/decode.
 - `MigrationRunner` + `V001__init` per dialect.
 - `SqlAccountRepository`, `SqlBalanceRepository` (atomic `adjust`), `SqlTransactionLog`, `SqlUnitOfWork`
-  (transactional transfer).
+  (transactional transfer), `ScopeResolver` (per-server vs network `scope_key`).
 - `IoDispatcher`.
 - **Depends on:** M1, M2
 - **Done when:** the same repository test suite passes on in-memory SQLite and MariaDB (Testcontainers);
-  transfer atomicity proven (forced failure rolls back both sides).
+  transfer atomicity proven (forced failure rolls back both sides); per-server vs network scope keying
+  verified (independent per-server balances, one shared network balance).
 
 ### M4 — Application services  ·  `tasks/M4-application.md`
 - Use cases: Create/Has/Get/Deposit/Withdraw/SetBalance/Transfer/Rename/Delete/ListCurrencies/FormatMoney.
@@ -59,13 +61,18 @@ Pure model + ports, fully unit-tested.
 - **Done when:** messages render with placeholders and correct money formatting; missing-key fallback
   works.
 
-### M6 — VaultUnlocked provider  ·  `tasks/M6-vault-provider.md`
+### M6 — Vault providers (v2 + legacy v1)  ·  `tasks/M6-vault-provider.md`
 - `VaultUnlockedEconomyProvider` implementing v2 `Economy`; `GeckonomyAsyncEconomy`; `ResponseMapper`;
   `OnlineBalanceMirror` + join/quit listener.
-- Capability flags; ServicesManager registration; shared-account methods NOT_IMPLEMENTED.
+- `LegacyVaultEconomyProvider` implementing legacy `net.milkbowl.vault.economy.Economy` (single-currency
+  → default currency; `double`↔`BigDecimal`; `OfflinePlayer`/name resolution without Mojang lookups;
+  banks NOT_IMPLEMENTED); `LegacyResponseMapper`; `PlayerResolver`.
+- Capability flags; register **both** services with `ServicesManager`; shared-account/bank methods
+  NOT_IMPLEMENTED.
 - **Depends on:** M4 (M5 for any messaged paths)
-- **Done when:** a third-party Vault-aware plugin reads/writes balances in ≥2 currencies; every
-  interface method implemented; no main-thread DB IO for online players.
+- **Done when:** a v2 Vault-aware plugin reads/writes balances in ≥2 currencies **and** a legacy-v1
+  Vault plugin reads/writes the default currency; every interface method (both) implemented; no
+  main-thread DB IO for online players.
 
 ### M7 — Commands & UX  ·  `tasks/M7-commands.md`
 - `/balance`, `/pay`, `/baltop`, admin `/eco give|take|set|reset`, `/geckonomy reload|version`.
@@ -84,8 +91,12 @@ Pure model + ports, fully unit-tested.
 ## Future (post-v1)
 Schema and interfaces are already shaped for these:
 - **Shared/bank accounts** + `AccountPermission` (uses `gk_account_member`, `AccountType.SHARED`).
-- **Cross-server sync** via Redis pub/sub + invalidation of the online mirror.
-- **Per-world economies** (new coordinate on `Balance`/repositories).
+- **Cross-server live sync** for `network`-scoped currencies via Redis pub/sub: publish balance-change
+  events, invalidate/refresh the online mirror on other servers so `network` currencies can be mirrored
+  instead of read-through. (Per-server scope + the `@global` keying already ship in v1; this milestone
+  adds only the live propagation.)
+- **Per-world economies** (new coordinate on repositories).
 - **Per-player language** (`MessageService` already takes a locale).
-- PlaceholderAPI expansion, transaction-history command, importers from other economy plugins, legacy
-  Vault bridge.
+- **Legacy Vault (v1) bank methods** — implement `createBank`/`bankDeposit`… once shared/bank accounts
+  ship (the legacy *player* API already ships in v1's M6).
+- PlaceholderAPI expansion, transaction-history command, importers from other economy plugins.

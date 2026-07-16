@@ -22,10 +22,16 @@ a time, in order; each lists files to create, implementation notes, and acceptan
 
 ## Locked v1 decisions
 - Personal (owner-only) accounts; schema is **shared-account-ready** for later banks.
-- **Global** balances per (account, currency); the Vault `world` param is accepted and ignored.
+- Currencies are **config-defined**, one default, and each has a **scope**: `network` (balance shared
+  across servers on one DB) or `server` (balance private to a server instance). Never per-world; the
+  Vault `world` param is accepted and ignored.
+- Per-currency **command permissions** and hard config flags (`transferable`, `balance-check-others`,
+  `show-in-baltop`) gate `balance`/`pay`/`baltop`.
 - **DB is the single source of truth**; all IO runs off the main thread. A minimal online-player mirror
-  serves the synchronous Vault path.
-- Currencies are **global, config-defined**, one default.
+  serves the synchronous Vault path (network currencies read through until Redis sync ships).
+- Register **both** the VaultUnlocked **v2** `Economy` (multi-currency) **and** the legacy **v1**
+  `net.milkbowl.vault.economy.Economy` (single-currency → default) from the first release — both ship in
+  the existing VaultUnlockedAPI dependency.
 
 ## Reference
 Pin a local copy of VaultUnlockedAPI at `.reference/VaultUnlockedAPI/` (git-ignored) for the exact

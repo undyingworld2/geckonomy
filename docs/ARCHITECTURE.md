@@ -43,8 +43,9 @@ com.the1mason.geckonomy
 │   │                SqlTransactionLog, SqlUnitOfWork, IoDispatcher
 │   ├── config       GeckonomyConfig, ConfigLoader, StorageConfig, CurrencyConfig, SettingsConfig
 │   ├── i18n         MessageService, MiniMessageRenderer, LanguageRepository, MessageKey
-│   ├── vault        VaultUnlockedEconomyProvider, GeckonomyAsyncEconomy, ResponseMapper,
-│   │                OnlineBalanceMirror
+│   ├── vault        VaultUnlockedEconomyProvider (v2), LegacyVaultEconomyProvider (v1),
+│   │                GeckonomyAsyncEconomy, ResponseMapper, LegacyResponseMapper,
+│   │                OnlineBalanceMirror, PlayerResolver
 │   └── bukkit       command/*, listener/PlayerConnectionListener, BukkitMainThread
 └── Geckonomy.kt     composition root
 ```
@@ -65,10 +66,12 @@ interface AccountRepository {
 }
 
 interface BalanceRepository {
-    suspend fun get(id: AccountId, currency: CurrencyCode): BigDecimal?   // null = no row
-    suspend fun set(id: AccountId, currency: CurrencyCode, amount: BigDecimal)
-    suspend fun adjust(id: AccountId, currency: CurrencyCode, delta: BigDecimal): BigDecimal // atomic, returns new
-    suspend fun top(currency: CurrencyCode, limit: Int): List<Pair<AccountId, BigDecimal>>
+    // Takes the full Currency (not just the code) so the impl can resolve the scope key
+    // (@global vs server-id) from currency.scope + the injected server-id.
+    suspend fun get(id: AccountId, currency: Currency): BigDecimal?   // null = no row
+    suspend fun set(id: AccountId, currency: Currency, amount: BigDecimal)
+    suspend fun adjust(id: AccountId, currency: Currency, delta: BigDecimal): BigDecimal // atomic, returns new
+    suspend fun top(currency: Currency, limit: Int): List<Pair<AccountId, BigDecimal>>
 }
 
 interface TransactionLog { suspend fun append(tx: Transaction) }
@@ -86,6 +89,11 @@ interface UnitOfWork {                  // transactional boundary for multi-step
 
 `TxContext` exposes repository operations bound to a single DB transaction, so `Transfer` debits,
 credits, and writes two ledger rows atomically.
+
+**Scope resolution.** A currency is `NETWORK` or `SERVER` scoped. The persistence layer holds a
+`ScopeResolver(serverId)` (server-id from config) that maps a `Currency` → the `scope_key` stored in
+`gk_balance`/`gk_transaction` (`@global` for network, the server-id for per-server). This lives entirely
+in `infrastructure` — domain/application never see a server id. See `DATA_MODEL.md §7`.
 
 ## 4. Threading model
 
@@ -111,6 +119,16 @@ called by third parties on the main thread. Reconciliation:
 
 > This mirror is the single concession to "DB-only + never block." It is a read-through cache for
 > online players, not a write-behind buffer: the DB write is dispatched immediately, not batched.
+
+**Scope & the mirror (important).** The mirror is only trustworthy when this server is the sole writer
+of a balance:
+- **Per-server (`SERVER`) currencies** — mirrored normally (only this server writes them).
+- **Network (`NETWORK`) currencies** — another server sharing the DB can change the balance, so the
+  mirror would go stale. Until live propagation ships (future: Redis pub/sub invalidation), the
+  synchronous Vault path for network currencies **reads through to the DB** (bounded, off the async
+  path where possible) instead of trusting the mirror; writes still persist to the DB authoritatively.
+  Our own command/listener paths are already fully async against the DB, so they are always correct.
+  When Redis sync lands, network currencies can be mirrored too, invalidated on cross-server change.
 
 ## 5. Key flows (sequences)
 
@@ -160,7 +178,8 @@ No framework. `Geckonomy.onEnable()` is the composition root:
    migrations).
 3. Build `EconomyService` from use cases + ports.
 4. Build `MessageService` from language files.
-5. Build `VaultUnlockedEconomyProvider` + mirror; register with `ServicesManager`.
+5. Build `VaultUnlockedEconomyProvider` (v2) **and** `LegacyVaultEconomyProvider` (v1) + mirror; register
+   both with `ServicesManager`.
 6. Register commands + listeners.
 `onDisable()` unregisters, flushes, and closes the pool + dispatcher.
 
