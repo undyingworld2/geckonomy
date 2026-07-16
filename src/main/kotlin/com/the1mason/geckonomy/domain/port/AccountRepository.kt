@@ -1,0 +1,47 @@
+package com.the1mason.geckonomy.domain.port
+
+import com.the1mason.geckonomy.domain.model.Account
+import com.the1mason.geckonomy.domain.model.AccountId
+
+/**
+ * Storage of accounts.
+ *
+ * Every function is `suspend` so implementations can do their IO off the caller's thread; the domain
+ * states the need and stays out of *how* (ARCHITECTURE.md §3).
+ */
+interface AccountRepository {
+
+    /**
+     * Creates [account], doing nothing if it already exists.
+     *
+     * Idempotent because account creation races: a join listener and a Vault caller may both try to
+     * create the same player (SPEC.md FR-A1).
+     *
+     * @return `true` if a new account was stored, `false` if it already existed.
+     */
+    suspend fun create(account: Account): Boolean
+
+    /** Whether an account with [id] exists. */
+    suspend fun exists(id: AccountId): Boolean
+
+    /** The display name of [id], or `null` if there is no such account. */
+    suspend fun findName(id: AccountId): String?
+
+    /** Every account's id mapped to its display name (SPEC.md FR-A3). */
+    suspend fun nameMap(): Map<AccountId, String>
+
+    /**
+     * Changes the display name of [id].
+     *
+     * @return `false` if no such account exists.
+     */
+    suspend fun rename(id: AccountId, name: String): Boolean
+
+    /**
+     * Removes the account [id] and its balances. Whether the ledger survives is governed by
+     * `settings.keep-transaction-history` (CONFIGURATION.md §2).
+     *
+     * @return `false` if no such account existed.
+     */
+    suspend fun delete(id: AccountId): Boolean
+}

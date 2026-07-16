@@ -1,0 +1,13 @@
+# Runtime libraries fetched by GeckonomyLoader at server start.
+#
+# Versions are substituted from pom.xml properties at build time (resource filtering), so this file
+# and the pom cannot drift apart. Adding a library here also needs a matching `provided` dependency
+# in the pom so the code compiles against it.
+#
+# Format: one Maven coordinate per line (group:artifact:version). Blank lines and #-comments ignored.
+
+org.jetbrains.kotlin:kotlin-stdlib-jdk8:${kotlin.version}
+org.jetbrains.kotlinx:kotlinx-coroutines-core:${coroutines.version}
+com.zaxxer:HikariCP:${hikaricp.version}
+org.xerial:sqlite-jdbc:${sqlite.version}
+org.mariadb.jdbc:mariadb-java-client:${mariadb.version}

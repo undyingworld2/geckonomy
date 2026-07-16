@@ -1,10 +1,11 @@
 name: Geckonomy
-description: $description
+description: ${project.description}
 prefix: Geckonomy
-version: '${version}'
+version: '${project.version}'
 
 main: com.the1mason.geckonomy.Geckonomy
-api-version: '26.1.1'
+loader: com.the1mason.geckonomy.GeckonomyLoader
+api-version: '26.1.2'
 load: STARTUP
 
 authors: [ the1mason ]
