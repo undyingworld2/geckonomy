@@ -35,8 +35,12 @@ com.the1mason.geckonomy
 ├── application
 │   ├── service    EconomyService (facade of suspend fns)
 │   ├── usecase    CreateAccount, GetBalance, Has, Deposit, Withdraw, SetBalance, Transfer,
-│   │              RenameAccount, DeleteAccount, ListCurrencies, FormatMoney
-│   └── result     OperationResult, TransferResult, EconomyError (sealed)
+│   │              RenameAccount, DeleteAccount, ListCurrencies, FormatMoney, AccountExists,
+│   │              FindAccountName, ListAccountNames, CanDeposit, CanWithdraw;
+│   │              StorageGuard, Amounts, TransactionFactory (internal, shared)
+│   ├── result     Outcome (sealed), OperationResult, TransferResult, Transferred,
+│   │              EconomyError (sealed)
+│   └── Attribution.kt
 ├── infrastructure
 │   ├── persistence  DataSourceFactory, SqlDialect, SqliteDialect, MariaDbDialect,
 │   │                MigrationRunner, SqlAccountRepository, SqlBalanceRepository,
@@ -69,12 +73,21 @@ interface BalanceRepository {
     // Takes the full Currency (not just the code) so the impl can resolve the scope key
     // (@global vs server-id) from currency.scope + the injected server-id.
     suspend fun get(id: AccountId, currency: Currency): BigDecimal?   // null = no row
-    suspend fun set(id: AccountId, currency: Currency, amount: BigDecimal)
-    suspend fun adjust(id: AccountId, currency: Currency, delta: BigDecimal): BigDecimal // atomic, returns new
+    suspend fun set(id: AccountId, currency: Currency, amount: BigDecimal)   // unguarded; SetBalance checks
+    // Atomic. Returns the new balance, or null when the overdraft guard refused it — a typed refusal,
+    // not an exception, because insufficient funds is routine (CODING_STANDARDS §4). Seeds a missing
+    // row at zero. See DATA_MODEL §4 for how the guard stays atomic.
+    suspend fun adjust(id: AccountId, currency: Currency, delta: BigDecimal): BigDecimal?
     suspend fun top(currency: Currency, limit: Int): List<Pair<AccountId, BigDecimal>>
 }
 
-interface TransactionLog { suspend fun append(tx: Transaction) }
+interface TransactionLog {
+    suspend fun append(tx: Transaction)
+    // Append-only has exactly one exception, shaped so it cannot be mistaken for a general delete:
+    // an account's whole history goes, and only as part of deleting the account, when
+    // settings.keep-transaction-history is off. There is no way to express "forget this one row".
+    suspend fun purge(id: AccountId): Int
+}
 
 interface CurrencyRegistry {           // in-memory, loaded from config
     fun all(): Collection<Currency>
@@ -134,25 +147,44 @@ of a balance:
 
 ### Deposit (our command / async API)
 ```
-Command → EconomyService.deposit(id, money)
+Command → EconomyService.deposit(id, amount, code)
   → Deposit use case
       → CurrencyRegistry.byCode (validate)
       → RoundingPolicy.round(amount)
-      → BalanceRepository.adjust(id, code, +amount)   [IoDispatcher]
-      → TransactionLog.append(DEPOSIT)
+      → UnitOfWork.transaction {
+            ctx.accounts.exists(id)                    // → AccountNotFound, not an FK error
+            ctx.balance.adjust(id, currency, +amount)  [IoDispatcher]
+            ctx.log.append(DEPOSIT)
+        }
   → OperationResult(success, newBalance)
 Command → MessageService → main thread → player
 ```
+**Why the transaction**, when a deposit touches one account: the balance change and its ledger row
+have to commit together, or a failed append leaves money moved with nothing recording it and FR-B7 is
+quietly false. It costs nothing — `SqlBalanceRepository` defers to an ambient transaction rather than
+opening its own — so `Withdraw` and `SetBalance` are wrapped the same way. `SetBalance` needs it for a
+second reason: it reads the previous balance to compute the ledger row's `delta`, and that read must
+be inside the write's transaction to be exact.
+
+Unlike `Transfer`, these three return a typed failure *normally* and let the transaction commit —
+nothing has been written that anyone would want undone.
 
 ### Transfer (atomic)
 ```
 Transfer use case → UnitOfWork.transaction {
-    ctx.balance.adjust(from, code, -amount)   // fails if insufficient & no overdraft
-    ctx.balance.adjust(to,   code, +amount)
+    ctx.accounts.exists(from) / exists(to)    // throw Abort(AccountNotFound)
+    ctx.balance.adjust(from, currency, -amount)   // null if insufficient → throw Abort(InsufficientFunds)
+    ctx.balance.adjust(to,   currency, +amount)
     ctx.log.append(TRANSFER_OUT); ctx.log.append(TRANSFER_IN)
 }   // commit or rollback
 → TransferResult
 ```
+**Aborting is a `throw`, never a `return`.** `SqlUnitOfWork` commits whatever the block returns and
+rolls back only on a throwable, so `return@transaction Outcome.Failure(...)` would commit the debit
+and report failure — destroying money in the one operation the transaction exists to protect. The use
+case throws a private, stackless `Abort(EconomyError)` and catches it immediately outside the block,
+turning it back into a typed failure. Insufficient funds is not exceptional; *aborting a transaction*
+is the only thing a throw can express.
 
 ### Vault getBalance (third-party, main thread)
 ```
@@ -170,13 +202,27 @@ carrying either success data or an `EconomyError`. The Vault adapter maps these 
 `EconomyResponse.ResponseType` (`SUCCESS`/`FAILURE`/`NOT_IMPLEMENTED`) + `errorMessage`. Exceptions never
 propagate into Bukkit callers.
 
+The mapping happens in exactly one place: `application.usecase.StorageGuard`, which every use case
+wraps its port calls in. `SQLException`, `MoneyOutOfRange`, and `LedgerFailure` become
+`StorageFailure` (logged at WARNING with context); a `DomainException` becomes the same variant but is
+logged at SEVERE, because it means a bug rather than a sick database. `CancellationException` is
+caught **first and rethrown** — it is an `IllegalStateException`, so `catch (Exception)` would
+otherwise swallow it, and `SqlUnitOfWork` rolls back a half-done transfer precisely because
+cancellation reaches it. There is no `Internal` error variant: a bug and a broken database read the
+same to a player, and the log level is what distinguishes them for us.
+
 ## 7. Dependency injection
 
 No framework. `Geckonomy.onEnable()` is the composition root:
 1. Load config → build `CurrencyRegistry`, `StorageConfig`.
 2. Build `DataSourceFactory` → `SqlDialect` → repositories, `UnitOfWork`, `MigrationRunner` (run
    migrations).
-3. Build `EconomyService` from use cases + ports.
+3. Build `EconomyService` from use cases + ports. Settings that a reload is allowed to change
+   (`rounding-mode`, `keep-transaction-history`) are injected as **suppliers** reading
+   `ConfigService.current`, not captured values — `restartWarnings` stays silent about them, which is
+   a promise that `/geckonomy reload` applies them. `allow-overdraft` is the opposite: one
+   `OverdraftPolicy` instance is shared between the balance repository's compiled SQL guard and
+   `SetBalance`'s check, so the two can never disagree, and changing it needs a restart.
 4. Build `MessageService` from language files.
 5. Build `VaultUnlockedEconomyProvider` (v2) **and** `LegacyVaultEconomyProvider` (v1) + mirror; register
    both with `ServicesManager`.

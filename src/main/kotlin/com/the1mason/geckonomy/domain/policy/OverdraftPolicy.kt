@@ -26,4 +26,14 @@ class OverdraftPolicy(private val allowOverdraft: Boolean = false) {
 
     /** Whether a resulting balance of [resulting] is permitted. */
     fun permits(resulting: Money): Boolean = permits(resulting.amount)
+
+    /**
+     * Whether any negative balance at all is permitted.
+     *
+     * [permits] answers for one amount, which suits a caller holding the result of an operation. This
+     * answers for the rule itself, which is what a caller must ask when it cannot enumerate the
+     * amounts — notably the SQL balance repository, which pushes the guard into a `WHERE` clause and
+     * so needs to know whether to emit the clause at all, not whether one particular number passes.
+     */
+    fun allowsNegativeBalances(): Boolean = allowOverdraft
 }

@@ -1,0 +1,9 @@
+# SQLite migrations, in apply order. Read by MigrationRunner.
+#
+# This index exists because a classloader cannot reliably list a directory inside a jar — the same
+# reason geckonomy-libraries.txt exists. Adding a migration means adding its file *and* a line here;
+# a file not listed is a file never applied.
+#
+# One filename per line, ordered. Blank lines and #-comments ignored.
+
+V001__init.sql

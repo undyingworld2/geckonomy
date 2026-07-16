@@ -38,8 +38,9 @@ sealed interface ReloadOutcome {
  *
  * **What reload actually applies.** Currencies, live, through [currencies]. Everything else is
  * updated in [current] for whoever reads it next; collaborators that captured a setting by value at
- * startup (M3's pool and `ScopeResolver`, M4's `RoundingPolicy`) keep what they were built with —
- * hence the warnings, and hence [StorageConfig] not being swapped at all.
+ * startup (M3's pool, `ScopeResolver`, and the balance repository's `OverdraftPolicy` guard, M4's
+ * `RoundingPolicy`) keep what they were built with — hence the warnings, and hence [StorageConfig]
+ * not being swapped at all.
  */
 class ConfigService private constructor(
     private val file: Path,
@@ -89,6 +90,13 @@ class ConfigService private constructor(
         if (old.storage != new.storage) {
             // Warning text stays ASCII: it reaches the server console, which is not reliably UTF-8.
             add("storage settings changed; Geckonomy keeps the connection it opened at startup, so restart the server to apply them")
+        }
+        if (old.settings.allowOverdraft != new.settings.allowOverdraft) {
+            // The overdraft rule is compiled into the balance repository's SQL guard at startup (it
+            // has to be: the check must be atomic with the update, so it lives in the WHERE clause).
+            // Nothing re-reads it, so without this warning the setting would appear to reload and
+            // silently do nothing.
+            add("settings.allow-overdraft changed; the balance guard is fixed at startup, so restart the server to apply it")
         }
         if (old.settings.serverId != new.settings.serverId) {
             add(

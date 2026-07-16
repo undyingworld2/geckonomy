@@ -23,7 +23,7 @@ currencies:
     singular: "Coin"
     plural: "Coins"
     symbol: "$"
-    fractional-digits: 2  # 0..10
+    fractional-digits: 2  # 0..4
     starting-balance: 100.00
     default: true
     scope: network        # network (shared across servers) | server (per this server)

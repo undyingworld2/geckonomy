@@ -92,7 +92,7 @@ settings:
 | `code` | string | — | Unique, lowercase, `[a-z0-9_-]`. |
 | `singular` / `plural` | string | — | Display names. |
 | `symbol` | string | — | Currency symbol. |
-| `fractional-digits` | int 0–10 | — | Decimal places; `0` = whole units. Capped at the stored scale (DATA_MODEL.md §3). |
+| `fractional-digits` | int 0–4 | — | Decimal places; `0` = whole units. Capped at the stored scale of 4 (DATA_MODEL.md §3). |
 | `starting-balance` | decimal | 0 | Seeded on account creation. Rounded to `fractional-digits` at load. |
 | `default` | bool | — | Exactly one `true` across the list. |
 | `scope` | enum | `server` | `network` = balance shared across servers on the same DB; `server` = balance local to this server instance (keyed by `server-id`). |
@@ -122,9 +122,9 @@ flag permits it **and** the player holds the node.
   `host`/`database`/`username` for MariaDB — an empty `password` is legitimate). `port` ∈ 1–65535.
 - `pool.minimum-idle ≤ pool.maximum-pool-size`; `connection-timeout-ms ≥ 250` (Hikari's own floor).
 - `currencies` non-empty; **exactly one** `default: true`.
-- Currency `code`s unique (case-insensitively) and well-formed; `0 ≤ fractional-digits ≤ 10` — the
-  upper bound is the stored scale, `DECIMAL(38,10)` (DATA_MODEL.md §3); an eleventh decimal place
-  would be truncated on write.
+- Currency `code`s unique (case-insensitively) and well-formed; `0 ≤ fractional-digits ≤ 4` — the
+  upper bound is the stored scale (DATA_MODEL.md §3); a fifth decimal place would be truncated on
+  write.
 - `starting-balance` may not be negative unless `allow-overdraft` is true. One finer than the
   currency's `fractional-digits` is rounded (per `rounding-mode`) with a warning, not rejected.
 - `scope` ∈ {`network`, `server`}.
@@ -144,7 +144,9 @@ balances is warned about, not auto-deleted.
 An **invalid** file changes nothing: the errors are reported and the server keeps running on the config
 it already had. **`settings.server-id`** also needs a restart — it is the scope key the persistence layer
 resolved at startup (DATA_MODEL.md §7) — and a change is warned about, since per-server balances stored
-under the old id are not visible under the new one.
+under the old id are not visible under the new one. **`settings.allow-overdraft`** likewise needs a
+restart and is warned about: the rule is compiled into the balance repository's SQL guard at startup,
+because the check has to be atomic with the update it guards (DATA_MODEL.md §4).
 
 ## 5. Parsing library (decided at M2)
 

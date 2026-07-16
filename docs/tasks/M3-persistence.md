@@ -14,7 +14,9 @@ and transactional transfers. All IO off the main thread.
 - `V001__init.sql` per dialect creating: `gk_account`, `gk_balance` (PK `(account_id, currency_code,
   scope_key)`), `gk_transaction` (with `scope_key`), `gk_account_member` (reserved), `gk_schema_version`
   + indexes from `DATA_MODEL.md`.
-- `SqlAccountRepository`, `SqlBalanceRepository` (atomic `adjust`, `top` for baltop), `SqlTransactionLog`.
+- `SqlAccountRepository`, `SqlBalanceRepository` (atomic `adjust`, `top` for baltop), `SqlTransactionLog`
+  (`purge` was added in M4, when `DeleteAccount` gave `settings.keep-transaction-history` its first
+  caller).
 - `SqlUnitOfWork` implementing `UnitOfWork`/`TxContext` — one JDBC transaction; used by transfers.
 - `ScopeResolver(serverId)` — maps a `Currency` → `scope_key` (`@global` for `NETWORK`, the config
   `server-id` for `SERVER`). Injected into the balance/transaction repositories; see `DATA_MODEL.md §7`.
@@ -28,6 +30,35 @@ and transactional transfers. All IO off the main thread.
 - SQLite: WAL mode + `busy_timeout`; serialize writes as needed via the dispatcher.
 - Money: round to currency digits **before** encode; decode back to `BigDecimal`.
 - No Bukkit imports in this package.
+
+## Decisions taken (M3)
+
+- **Money encoding** (the open item from DATA_MODEL §3): fixed scale **4**; SQLite `INTEGER` minor
+  units, MariaDB `DECIMAL(38,4)`. Ceiling ±922 trillion; `fractional-digits` capped at 4 in config.
+  Full reasoning in DATA_MODEL §3 — the decimal-string alternative mis-ranks negative balances.
+- **`adjust` refusal**: the port returns `BigDecimal?`, `null` = refused by the guard. Chosen over an
+  exception because CODING_STANDARDS §4 makes insufficient funds a typed result. Amended
+  `BalanceRepository` and ARCHITECTURE §3.
+- **`adjust` is atomic on both backends** — the minor-unit encoding lets SQLite do the arithmetic in
+  SQL too, so the read-modify-write this task allowed for is not needed. See DATA_MODEL §4.
+- **`allow-overdraft` is now restart-only**: the guard is compiled into the SQL at startup, so
+  `ConfigService` warns on a reload that changes it. Added `OverdraftPolicy.allowsNegativeBalances()`
+  for the repository to build the clause from.
+- **SQLite pool is pinned to one connection**, overriding `pool.maximum-pool-size`, and the
+  `IoDispatcher` is sized to match (1 thread for SQLite, pool size for MariaDB).
+- **Migrations are indexed** by a `migrations.txt` per dialect (jars cannot list directories), and the
+  transactional guarantee does **not** hold on MariaDB. See DATA_MODEL §2.
+- **Account deletion relies on `ON DELETE CASCADE`** rather than a second `DELETE`, so it is atomic
+  without a transaction. A test guards the cascade.
+
+## Not done
+
+- **MariaDB is untested.** Testcontainers needs Docker, which the dev machine does not have; by
+  decision, the MariaDB half of the suite was deferred rather than written to auto-skip.
+  `MariaDbDialect` and its `V001__init.sql` ship **unexecuted** — only its generated SQL strings are
+  unit-tested. The suite is an abstract `RepositoryContract`; the MariaDB backend is one subclass
+  supplying a `StorageConfig`, and every expectation already exists. Until then, M3's "same suite
+  passes on both" acceptance criterion is met for SQLite only.
 
 ## Acceptance / tests
 - A single parametrized repository suite runs on **in-memory SQLite** and **MariaDB (Testcontainers)**:

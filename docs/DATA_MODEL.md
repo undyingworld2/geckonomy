@@ -24,11 +24,13 @@ PK: `id`.
 | `account_id` | `TEXT` / `BINARY(16)` | FK → `gk_account.id`. |
 | `currency_code` | `TEXT` / `VARCHAR(32)` | Currency code (lowercase). |
 | `scope_key` | `TEXT` / `VARCHAR(64)` | `@global` for `network` currencies; the config `server-id` for `server` (per-server) currencies. See §7. |
-| `amount` | `TEXT` / `DECIMAL(38,10)` | See §3 — SQLite stores a normalized decimal string. |
+| `amount` | `INTEGER` / `DECIMAL(38,4)` | See §3 — SQLite stores a count of minor units at scale 4. |
 
 PK: `(account_id, currency_code, scope_key)`. **No world column** — balances are never per-world; they
 are either network-wide (`@global`) or per-server (`server-id`).
-Index: `(currency_code, scope_key, amount)` to support `/baltop`.
+FK: `account_id` → `gk_account.id` `ON DELETE CASCADE` (§6).
+Index: `(currency_code, scope_key, amount)` to support `/baltop`. Ordering by `amount` is only correct
+because it is numeric — see §3.
 
 ### `gk_transaction` (audit ledger, append-only)
 | Column | Type | Notes |
@@ -37,13 +39,15 @@ Index: `(currency_code, scope_key, amount)` to support `/baltop`.
 | `account_id` | `TEXT` / `BINARY(16)` | Subject account. |
 | `currency_code` | `TEXT` / `VARCHAR(32)` | |
 | `scope_key` | `TEXT` / `VARCHAR(64)` | `@global` or `server-id` (matches the balance touched). |
-| `delta` | `TEXT` / `DECIMAL(38,10)` | Signed change. |
-| `resulting_balance` | `TEXT` / `DECIMAL(38,10)` | Balance after. |
+| `delta` | `INTEGER` / `DECIMAL(38,4)` | Signed change. Encoded as `gk_balance.amount` (§3). |
+| `resulting_balance` | `INTEGER` / `DECIMAL(38,4)` | Balance after. |
 | `type` | `TEXT` / `VARCHAR(16)` | DEPOSIT/WITHDRAW/SET/TRANSFER_IN/TRANSFER_OUT. |
 | `source_plugin` | `TEXT` / `VARCHAR(64)` | Vault pluginName or `geckonomy`; nullable. |
 | `counterparty_id` | `TEXT` / `BINARY(16)` | For transfers; nullable. |
 | `created_at` | `INTEGER` / `BIGINT` | Epoch millis. |
 
+**No foreign key** on `account_id`, unlike `gk_balance`: the ledger outlives the account it describes
+when `keep-transaction-history` is on (§6), which a foreign key would forbid.
 Index: `(account_id, created_at)`.
 
 ### `gk_account_member` (RESERVED — created, unused in v1)
@@ -67,26 +71,75 @@ PK: `(account_id, member_id)`. Empty in v1.
 
 - Numbered SQL files per dialect: `resources/db/migration/sqlite/V001__init.sql`,
   `resources/db/migration/mariadb/V001__init.sql`, …
-- `MigrationRunner` reads applied version from `gk_schema_version`, applies pending files in order inside
-  a transaction, records the new version. Runs on enable before any repository use.
+- Each dialect directory carries a `migrations.txt` listing its files in apply order. A classloader
+  cannot reliably list a directory inside a jar, so the index is what the runner reads — the same
+  approach as `geckonomy-libraries.txt`. **A migration not listed is a migration never applied.**
+- `MigrationRunner` reads the applied versions from `gk_schema_version`, applies pending files in
+  order, and records each version in the same transaction as the file it applied. Runs on enable,
+  before any repository use; the plugin refuses to start if it fails.
+- The tracking table is created by `V001` like any other, so the first run has nothing to read from.
+  The runner asks the driver's metadata whether the table exists rather than catching a failed
+  `SELECT` — "no schema yet" is a fact to look up, not an error to recover from.
+- **The transaction does not protect MariaDB.** DDL there implicitly commits, so a file that fails
+  halfway leaves the statements that already ran; only SQLite makes DDL transactional. The recovery is
+  that the version row is written only on success, so the next start re-runs the whole file — which is
+  safe **only because every statement in every migration is `IF NOT EXISTS`**. That is an invariant
+  each migration author must keep, not something the runner can enforce.
 - Keeping SQLite/MariaDB SQL separate makes dialect divergence explicit and reviewable.
 
-## 3. Money storage & precision
+## 3. Money storage & precision  ·  *decided at M3*
 
 - Domain money is `BigDecimal`. Never store as float/double.
-- **MariaDB:** `DECIMAL(38,10)` — native exact decimal.
-- **SQLite:** no real DECIMAL type. Store the **canonical string** form of the `BigDecimal` (fixed scale
-  = max currency fractional digits, e.g. 10) so lexical ordering matches numeric ordering for `/baltop`,
-  or store as INTEGER minor-units if all currencies share a scale. **Decision (open item):** default to
-  fixed-scale zero-padded decimal string; confirm at M3. `SqlDialect` owns encode/decode so the choice
-  is a single place.
-- Always round to the currency's fractional digits (domain) before encoding.
+- **Fixed scale of 4**, both backends. `SqlDialect.MONEY_SCALE` is the single source of truth;
+  `ConfigLoader` caps `fractional-digits` at it (CONFIGURATION.md §3) so no currency can ask for
+  precision the store would truncate.
+- **SQLite:** `INTEGER` count of minor units (amount × 10⁴).
+- **MariaDB:** `DECIMAL(38,4)` — native exact decimal, same scale.
+- Always round to the currency's fractional digits (domain, `RoundingPolicy`) before encoding.
+  `SqlDialect` owns encode/decode, so the representation is one place; an amount finer than scale 4 or
+  beyond the range below throws `MoneyOutOfRange` rather than being silently truncated.
+
+### Why (the open item this replaces)
+
+The earlier proposal was a fixed-scale zero-padded **decimal string** on SQLite, so lexical ordering
+would serve `/baltop`. It does not: `"-9.00" > "-1.00"` lexically, so any server with
+`allow-overdraft: true` would rank negative balances backwards. Integer minor units sort numerically,
+support `amount = amount + ?` in a single guarded `UPDATE` (§4), and stay exact.
+
+The cost is a **ceiling**: a 64-bit integer at scale *n* caps a balance at `2^63-1 / 10^n`.
+
+| Scale | Max balance |
+|---|---|
+| 10 | ~922 million — reachable by a real economy |
+| **4** | **±922,337,203,685,477** (~922 trillion) — not |
+
+Hence scale 4: two more digits than the conventional currency needs, and a ceiling nobody meets.
+
+The scale is **fixed rather than per-currency** because it is how a stored integer is *interpreted*.
+Read from a currency's `fractional-digits`, editing that value in `config.yml` would silently multiply
+or divide every existing balance by a power of ten. Fixed, config decides only rounding.
+
+MariaDB uses `DECIMAL(38,4)` rather than a wider `DECIMAL` for the same reason its range is still
+checked against SQLite's 64-bit ceiling: both stores must hold **exactly the same set of values**, or a
+balance written on MariaDB could not be migrated to SQLite.
 
 ## 4. Atomicity & concurrency
 
-- `BalanceRepository.adjust` is atomic: a single `UPDATE ... SET amount = amount ± ?` (MariaDB) or a
-  transactional read-modify-write (SQLite) guarded so it fails when the result would go negative and
-  overdraft is off.
+- `BalanceRepository.adjust` is atomic on **both** backends — the minor-unit encoding (§3) means SQLite
+  can do arithmetic in SQL too, so the transactional read-modify-write once planned for it is not
+  needed. Three statements in one transaction:
+  1. `INSERT OR IGNORE` a zero row — a missing row means zero, and a currency added to config after an
+     account exists has none until something touches it (§6).
+  2. `UPDATE ... SET amount = amount + ? WHERE <key> AND amount + ? >= 0` — check and write in one
+     statement, so two concurrent withdrawals cannot both pass and jointly overdraw. The guard clause
+     is omitted entirely when `allow-overdraft` is on. **Zero rows updated = refused**, which the port
+     returns as `null` rather than an exception (CODING_STANDARDS.md §4).
+  3. `SELECT` the new balance — MariaDB has no `UPDATE ... RETURNING`. The transaction is what makes
+     this trustworthy: without it, another server on the same database could change the balance
+     between the update and the read.
+- The overdraft rule is **compiled into the guard at startup**, because it must live in the same
+  statement as the update. A reload cannot change it; `ConfigService` warns and asks for a restart
+  (CONFIGURATION.md §4).
 - **Transfers** run through `UnitOfWork.transaction { }` — one JDBC transaction wrapping debit + credit +
   two ledger inserts; commit or rollback together.
 - Upserts (create balance row on first touch) use dialect-specific `INSERT ... ON CONFLICT`

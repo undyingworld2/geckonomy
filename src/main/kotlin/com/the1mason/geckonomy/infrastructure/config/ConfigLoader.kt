@@ -23,11 +23,17 @@ private const val DEFAULT_MARIADB_PORT = 3306
 /**
  * Ceiling on a currency's `fractional-digits`.
  *
- * Money is stored as `DECIMAL(38,10)` (DATA_MODEL.md §3), so an eleventh decimal place has nowhere to
+ * Money is stored at a fixed scale of 4 (DATA_MODEL.md §3), so a fifth decimal place has nowhere to
  * go: the currency would look fine at startup and silently truncate on the first write. Rejecting it
  * here turns a data-loss bug into a config error.
+ *
+ * Four rather than more because SQLite stores money as an INTEGER count of minor units, and every
+ * digit of scale costs a factor of ten off the largest storable balance. At scale 4 the ceiling is
+ * ~922 trillion, which no economy reaches; at scale 10 it would be ~922 million, which one plausibly
+ * does. Two digits covers the conventional currency, so the two spare digits are headroom rather than
+ * a constraint anyone should feel.
  */
-internal const val MAX_FRACTIONAL_DIGITS = 10
+internal const val MAX_FRACTIONAL_DIGITS = 4
 
 private val PORT_RANGE = 1..65_535
 private val POOL_SIZE_RANGE = 1..64

@@ -261,12 +261,20 @@ class ConfigLoaderTest {
 
     @Test
     fun `rejects more fractional digits than storage can hold`() {
-        // DECIMAL(38,10) — an eleventh decimal would be truncated on write, silently.
+        // Money is stored at a fixed scale of 4 — a fifth decimal would be truncated on write,
+        // silently. See DATA_MODEL.md §3 for why the scale is 4 and not more.
         assertRejects(
-            VALID.replace("fractional-digits: 2", "fractional-digits: 11"),
+            VALID.replace("fractional-digits: 2", "fractional-digits: 5"),
             "currencies[0].fractional-digits",
-            "between 0 and 10",
+            "between 0 and 4",
         )
+    }
+
+    @Test
+    fun `accepts fractional digits at the storage scale`() {
+        val currencies = loaded(VALID.replace("fractional-digits: 2", "fractional-digits: 4")).config.currencies
+
+        assertEquals(4, currencies.first().fractionalDigits)
     }
 
     @Test

@@ -24,14 +24,25 @@ interface BalanceRepository {
     suspend fun set(id: AccountId, currency: Currency, amount: BigDecimal)
 
     /**
-     * Applies a signed [delta] to the balance of [id] in [currency] and returns the new amount.
+     * Applies a signed [delta] to the balance of [id] in [currency] and returns the new amount, or
+     * `null` if the overdraft rule refused it.
      *
-     * **Atomic**: the read and write are one operation, so concurrent adjustments cannot lose an
-     * update the way `get` followed by `set` would.
+     * **Atomic**: the check and the write are one operation, so concurrent adjustments cannot lose an
+     * update the way `get` followed by `set` would, and two simultaneous withdrawals cannot both pass
+     * a balance check and jointly overdraw. Enforcing the rule here rather than in the caller is what
+     * makes that guarantee possible — a caller cannot atomically check-then-act across a port.
      *
-     * @return the balance after the change.
+     * A missing balance row counts as zero and is created by this call, so a currency added to config
+     * after an account already exists can still be deposited into (DATA_MODEL.md §6).
+     *
+     * `null` is a typed refusal, not an error: insufficient funds is a routine outcome every caller
+     * must handle, so it is a return value rather than an exception (CODING_STANDARDS.md §4). Callers
+     * map it to `EconomyError.InsufficientFunds`.
+     *
+     * @return the balance after the change, or `null` if applying [delta] would leave the balance
+     *   below zero while overdraft is off.
      */
-    suspend fun adjust(id: AccountId, currency: Currency, delta: BigDecimal): BigDecimal
+    suspend fun adjust(id: AccountId, currency: Currency, delta: BigDecimal): BigDecimal?
 
     /** The [limit] highest balances in [currency], richest first, for `/baltop`. */
     suspend fun top(currency: Currency, limit: Int): List<Pair<AccountId, BigDecimal>>

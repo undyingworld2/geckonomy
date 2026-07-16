@@ -48,11 +48,16 @@ Pure model + ports, fully unit-tested.
   transfer atomicity proven (forced failure rolls back both sides); per-server vs network scope keying
   verified (independent per-server balances, one shared network balance).
 
-### M4 — Application services  ·  `tasks/M4-application.md`
-- Use cases: Create/Has/Get/Deposit/Withdraw/SetBalance/Transfer/Rename/Delete/ListCurrencies/FormatMoney.
-- `EconomyService` facade (suspend fns); typed `OperationResult`/`TransferResult`/`EconomyError`.
+### M4 — Application services  ·  `tasks/M4-application.md`  ✅
+- Use cases: Create/Has/Get/Deposit/Withdraw/SetBalance/Transfer/Rename/Delete/ListCurrencies/FormatMoney,
+  plus AccountExists/FindAccountName/ListAccountNames (FR-A2/A3) and CanDeposit/CanWithdraw (FR-B4).
+- `EconomyService` facade (suspend fns); typed `OperationResult`/`TransferResult`/`EconomyError` over a
+  generic sealed `Outcome`.
+- Added `TransactionLog.purge` so `keep-transaction-history` works rather than shipping dead.
 - **Depends on:** M1, M3
 - **Done when:** use-case tests pass against fake ports and real repositories; error mapping covered.
+- **Done:** 279 tests green, including `EconomyServiceSqliteTest` against real SQLite; enables and
+  disables cleanly on a live Paper server.
 
 ### M5 — Localization & formatting  ·  `tasks/M5-localization.md`
 - `MessageService` + MiniMessage rendering; `LanguageRepository`; `lang/en.yml`.
@@ -99,4 +104,8 @@ Schema and interfaces are already shaped for these:
 - **Per-player language** (`MessageService` already takes a locale).
 - **Legacy Vault (v1) bank methods** — implement `createBank`/`bankDeposit`… once shared/bank accounts
   ship (the legacy *player* API already ships in v1's M6).
+- **`/geckonomy seed`** — backfill balance rows for a currency added to config after accounts already
+  existed. Today those players read as `0` rather than the currency's `starting-balance`, which is
+  what `BalanceRepository.adjust`'s "a missing row counts as zero" contract forces (M4). Harmless, but
+  an admin may want the opening balance handed out retroactively.
 - PlaceholderAPI expansion, transaction-history command, importers from other economy plugins.
