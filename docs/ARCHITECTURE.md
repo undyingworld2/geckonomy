@@ -46,7 +46,8 @@ com.the1mason.geckonomy
 │   │                MigrationRunner, SqlAccountRepository, SqlBalanceRepository,
 │   │                SqlTransactionLog, SqlUnitOfWork, IoDispatcher
 │   ├── config       GeckonomyConfig, ConfigLoader, StorageConfig, CurrencyConfig, SettingsConfig
-│   ├── i18n         MessageService, MiniMessageRenderer, LanguageRepository, MessageKey
+│   ├── i18n         MessageService, MiniMessageRenderer, Placeholders, LanguageRepository,
+│   │                MessageKey
 │   ├── vault        VaultUnlockedEconomyProvider (v2), LegacyVaultEconomyProvider (v1),
 │   │                GeckonomyAsyncEconomy, ResponseMapper, LegacyResponseMapper,
 │   │                OnlineBalanceMirror, PlayerResolver

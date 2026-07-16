@@ -95,7 +95,7 @@ internal class EconomyFixture(allowOverdraft: Boolean = false) {
             renameAccount = RenameAccount(accounts, guard),
             deleteAccount = DeleteAccount(unitOfWork, { keepHistory }, guard),
             listCurrencies = ListCurrencies(currencies),
-            formatMoney = FormatMoney(Locale.US),
+            formatMoney = FormatMoney { Locale.US },
             currencies = currencies,
         )
     }

@@ -32,6 +32,8 @@ import com.the1mason.geckonomy.infrastructure.config.ConfigService
 import com.the1mason.geckonomy.infrastructure.config.GeckonomyConfig
 import com.the1mason.geckonomy.infrastructure.config.StartOutcome
 import com.the1mason.geckonomy.infrastructure.config.StorageType
+import com.the1mason.geckonomy.infrastructure.i18n.LanguageRepository
+import com.the1mason.geckonomy.infrastructure.i18n.MessageService
 import com.the1mason.geckonomy.infrastructure.persistence.ConnectionSource
 import com.the1mason.geckonomy.infrastructure.persistence.DataSourceFactory
 import com.the1mason.geckonomy.infrastructure.persistence.IoDispatcher
@@ -53,7 +55,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.bukkit.plugin.java.JavaPlugin
 import java.time.Clock
+import java.util.Locale
 import java.util.logging.Logger
+import kotlin.io.path.exists
 
 /**
  * Composition root — the only class that may know every layer (ARCHITECTURE.md §1).
@@ -95,12 +99,21 @@ class Geckonomy : JavaPlugin() {
      */
     private var economy: EconomyService? = null
 
+    /**
+     * Player-facing text, held for M7's commands and any messaged path in M6.
+     *
+     * Unlike [economy], this needs no storage and cannot fail: a language file that is missing or
+     * broken degrades to the copy bundled in the jar (LOCALIZATION.md §1), because refusing to start
+     * over a text file would be a worse trade than saying it in English.
+     */
+    private var messages: MessageService? = null
+
     override fun onEnable() {
         // Wiring order — ARCHITECTURE.md §7. Each step arrives with its milestone:
         // 1. M2 — load config; build CurrencyRegistry and StorageConfig.                    [done]
         // 2. M3 — DataSourceFactory -> SqlDialect -> repositories + UnitOfWork; migrations. [done]
         // 3. M4 — EconomyService from the use cases + ports.                                [done]
-        // 4. M5 — MessageService from the language files.
+        // 4. M5 — MessageService from the language files.                                   [done]
         // 5. M6 — VaultUnlockedEconomyProvider (v2) and LegacyVaultEconomyProvider (v1) + the online
         //         balance mirror; register both with the ServicesManager.
         // 6. M7 — register commands and listeners.
@@ -109,7 +122,34 @@ class Geckonomy : JavaPlugin() {
         val storage = openStorage(config) ?: return
         this.storage = storage
         economy = Economy(config, storage, Clock.systemUTC(), logger).service
-        logger.info("Geckonomy enabled (M4: economy ready; no commands or Vault providers wired yet).")
+        messages = loadMessages(config)
+        logger.info("Geckonomy enabled (M5: economy and messages ready; no commands or Vault providers wired yet).")
+    }
+
+    /**
+     * Builds the message service and reads the language files.
+     *
+     * `lang/en.yml` is written once and never overwritten, so an owner's edits survive an upgrade —
+     * which is exactly why `LanguageRepository` keeps the jar's copy as a last fallback: their file is
+     * frozen at the version that created it, and a later Geckonomy will have messages it has never
+     * heard of.
+     *
+     * The existence check is not redundant with `saveResource`'s own `replace = false`: that overload
+     * logs a warning when the file is already there, so calling it unconditionally would put "Could
+     * not save en.yml because en.yml already exists" in the console on every start but the first —
+     * telling the owner off for the normal case.
+     *
+     * Blocking file IO on the main thread, like the migrations above and for the same reason: this is
+     * enable, and there is nothing else for it to be doing.
+     */
+    private fun loadMessages(config: ConfigService): MessageService {
+        val directory = dataFolder.toPath().resolve("lang")
+        if (!directory.resolve("en.yml").exists()) saveResource("lang/en.yml", false)
+        val languages = LanguageRepository(directory, logger)
+        // Named, not a trailing lambda: the last parameter is the renderer, and a trailing lambda
+        // would bind there instead.
+        return MessageService(languages, language = { config.current.settings.language })
+            .apply { reload() }
     }
 
     override fun onDisable() {
@@ -117,6 +157,7 @@ class Geckonomy : JavaPlugin() {
         // goes before the storage it reads through, so nothing can be handed a closed pool.
         scope.cancel("Geckonomy is disabling")
         economy = null
+        messages = null
         storage?.close()
         storage = null
         config = null
@@ -274,6 +315,15 @@ class Geckonomy : JavaPlugin() {
         private val rounding = { RoundingPolicy(service.current.settings.roundingMode) }
         private val keepHistory = { service.current.settings.keepTransactionHistory }
 
+        /**
+         * Digit grouping for [FormatMoney], from the same setting that picks the language file.
+         *
+         * `settings.language` names a file rather than a locale, but deriving one from it is what
+         * keeps a German server's text and its numbers agreeing — `1.000,00 Coins`, not `1,000.00`.
+         * Read per call for the same reason as the two above: the setting is reloadable.
+         */
+        private val locale = { Locale.forLanguageTag(service.current.settings.language) }
+
         private val currencies = service.currencies
         private val guard = StorageGuard(logger)
         private val amounts = Amounts(CurrencyValidation(currencies), rounding)
@@ -298,7 +348,7 @@ class Geckonomy : JavaPlugin() {
             renameAccount = RenameAccount(storage.accounts, guard),
             deleteAccount = DeleteAccount(storage.unitOfWork, keepHistory, guard),
             listCurrencies = ListCurrencies(currencies),
-            formatMoney = FormatMoney(),
+            formatMoney = FormatMoney(locale),
             currencies = currencies,
         )
     }

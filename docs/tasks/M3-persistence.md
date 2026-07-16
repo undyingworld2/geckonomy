@@ -51,14 +51,22 @@ and transactional transfers. All IO off the main thread.
 - **Account deletion relies on `ON DELETE CASCADE`** rather than a second `DELETE`, so it is atomic
   without a transaction. A test guards the cascade.
 
-## Not done
+## MariaDB — closed at M5
 
-- **MariaDB is untested.** Testcontainers needs Docker, which the dev machine does not have; by
-  decision, the MariaDB half of the suite was deferred rather than written to auto-skip.
-  `MariaDbDialect` and its `V001__init.sql` ship **unexecuted** — only its generated SQL strings are
-  unit-tested. The suite is an abstract `RepositoryContract`; the MariaDB backend is one subclass
-  supplying a `StorageConfig`, and every expectation already exists. Until then, M3's "same suite
-  passes on both" acceptance criterion is met for SQLite only.
+MariaDB shipped unexecuted at M3 because the dev machine had no Docker. It now does, and the gap is
+closed exactly as this section predicted: one `MariaDbRepositoryTest` supplying a `StorageConfig` from
+a `MariaDBContainer`, with every expectation already in `RepositoryContract`. All 37 contract tests
+pass against a real MariaDB 11.4 (~44 s), so **M3's "same suite passes on both" criterion is now met
+for real** — `MariaDbDialect` and its `V001__init.sql` execute rather than being only string-tested.
+
+`MigrationRunnerTest` was split the same way, into a `MigrationRunnerContract` with a subclass per
+dialect (5 tests each). It gained a case the SQLite-only version could not justify: a migration whose
+version row was never recorded must re-run cleanly over its own tables. That is MariaDB's *only*
+recovery path — its DDL implicitly commits, so a half-applied file cannot roll back — and it is what
+the `IF NOT EXISTS` on every statement exists to buy.
+
+Each suite owns its container: the repository tests wipe rows between tests, the migration tests drop
+the schema, and sharing one container would have them fighting over the same tables.
 
 ## Acceptance / tests
 - A single parametrized repository suite runs on **in-memory SQLite** and **MariaDB (Testcontainers)**:

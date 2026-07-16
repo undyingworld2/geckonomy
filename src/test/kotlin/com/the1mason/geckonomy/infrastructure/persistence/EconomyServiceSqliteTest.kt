@@ -307,7 +307,7 @@ class EconomyServiceSqliteTest {
             renameAccount = RenameAccount(harness.accounts, guard),
             deleteAccount = DeleteAccount(harness.unitOfWork, { keepHistory }, guard),
             listCurrencies = ListCurrencies(currencies),
-            formatMoney = FormatMoney(java.util.Locale.US),
+            formatMoney = FormatMoney { java.util.Locale.US },
             currencies = currencies,
         )
     }

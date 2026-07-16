@@ -36,7 +36,7 @@ Pure model + ports, fully unit-tested.
 - **Done when:** valid config loads to typed objects; invalid config disables the plugin with a clear
   error; currency registry returns default + by-code.
 
-### M3 — Persistence  ·  `tasks/M3-persistence.md`
+### M3 — Persistence  ·  `tasks/M3-persistence.md`  ✅
 - `DataSourceFactory` (Hikari) for sqlite + mariadb.
 - `SqlDialect` (+ `SqliteDialect`, `MariaDbDialect`): identifiers, upserts, money encode/decode.
 - `MigrationRunner` + `V001__init` per dialect.
@@ -47,6 +47,9 @@ Pure model + ports, fully unit-tested.
 - **Done when:** the same repository test suite passes on in-memory SQLite and MariaDB (Testcontainers);
   transfer atomicity proven (forced failure rolls back both sides); per-server vs network scope keying
   verified (independent per-server balances, one shared network balance).
+- **Done:** `RepositoryContract` (37 tests) green on both SQLite and MariaDB 11.4; `MigrationRunner`
+  likewise via `MigrationRunnerContract`. The MariaDB half was deferred at M3 for lack of Docker and
+  landed alongside M5 once Docker arrived — until then, `MariaDbDialect` had never executed.
 
 ### M4 — Application services  ·  `tasks/M4-application.md`  ✅
 - Use cases: Create/Has/Get/Deposit/Withdraw/SetBalance/Transfer/Rename/Delete/ListCurrencies/FormatMoney,
@@ -59,12 +62,17 @@ Pure model + ports, fully unit-tested.
 - **Done:** 279 tests green, including `EconomyServiceSqliteTest` against real SQLite; enables and
   disables cleanly on a live Paper server.
 
-### M5 — Localization & formatting  ·  `tasks/M5-localization.md`
+### M5 — Localization & formatting  ·  `tasks/M5-localization.md`  ✅
 - `MessageService` + MiniMessage rendering; `LanguageRepository`; `lang/en.yml`.
 - `FormatMoney` wired to currency templates; safe (unparsed) player-input insertion.
 - **Depends on:** M2, M4
 - **Done when:** messages render with placeholders and correct money formatting; missing-key fallback
   works.
+- **Done:** 431 tests green. `MessageKey` ships the full key set M6/M7 will spend, held to `en.yml` in
+  both directions by `MessageKeyCoverageTest`. Fallback is three deep — active → disk `en` → bundled
+  `en` → raw key — the extra layer being upgrade insurance for an owner-edited `en.yml`
+  (LOCALIZATION.md §1). `FormatMoney` now takes its locale from `settings.language` rather than the
+  host JVM, per call so a reload applies it.
 
 ### M6 — Vault providers (v2 + legacy v1)  ·  `tasks/M6-vault-provider.md`
 - `VaultUnlockedEconomyProvider` implementing v2 `Economy`; `GeckonomyAsyncEconomy`; `ResponseMapper`;

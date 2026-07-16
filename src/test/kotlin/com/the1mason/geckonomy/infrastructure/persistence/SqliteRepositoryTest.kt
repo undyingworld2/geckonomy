@@ -14,9 +14,7 @@ import java.nio.file.Path
  * therefore two pools, on one database — could not share it without the `cache=shared` URL hack. A
  * temp file is what production actually uses, and JUnit deletes it after each test.
  *
- * The MariaDB sibling is deliberately absent: it needs Docker for Testcontainers, which this machine
- * does not have. Adding it is a subclass of this shape and nothing else — every expectation already
- * lives in [RepositoryContract].
+ * See [MariaDbRepositoryTest] for the other half of M3's "same suite on both dialects".
  */
 class SqliteRepositoryTest : RepositoryContract() {
 

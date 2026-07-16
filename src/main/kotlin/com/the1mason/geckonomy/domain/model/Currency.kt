@@ -41,7 +41,21 @@ data class Currency(
     val checkableOthers: Boolean,
     val showInBaltop: Boolean,
     val format: String,
-)
+) {
+
+    /**
+     * [singular] for exactly one, [plural] for anything else — "1 Gem", "5 Gems", "0 Gems".
+     *
+     * Lives here rather than in the two places that render names (`FormatMoney`'s `<currency>` and
+     * M5's `Placeholders.currency`) because it is one rule about what a currency is called, and two
+     * copies of it would eventually disagree about a balance of exactly one.
+     *
+     * Compares with [BigDecimal.compareTo], not `equals`: `1.00` and `1` are the same amount of money
+     * but not equal objects (see [Money]), and a balance of one coin must not read "1.00 Coins".
+     */
+    fun nameFor(amount: BigDecimal): String =
+        if (amount.compareTo(BigDecimal.ONE) == 0) singular else plural
+}
 
 /**
  * Whether a currency's balances are shared between servers on the same database, or belong to one

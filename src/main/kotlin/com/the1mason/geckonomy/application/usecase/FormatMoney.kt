@@ -1,7 +1,6 @@
 package com.the1mason.geckonomy.application.usecase
 
 import com.the1mason.geckonomy.domain.model.Money
-import java.math.BigDecimal
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -13,16 +12,19 @@ import java.util.Locale
  * (CODING_STANDARDS.md §2), and M5's renderer inserts this as `<formatted>` — as **unparsed** text,
  * so a currency's symbol can never smuggle MiniMessage tags into a message.
  *
- * @param locale decides digit grouping only. `Locale.getDefault()` in v1: `settings.language` names a
- *   file, not a locale, so there is nothing better to derive one from yet. M5 may inject one when
- *   per-player language lands.
+ * @param locale decides digit grouping only, and is read per call rather than captured. M5 wires it to
+ *   `Locale.forLanguageTag(settings.language)`, which is reloadable: `ConfigService.restartWarnings`
+ *   deliberately says nothing about `settings.language`, and that silence is a promise that
+ *   `/geckonomy reload` applies it. A captured locale would quietly break that promise — the reload
+ *   would report success and keep formatting the old way. It is a supplier for the same reason
+ *   `RoundingPolicy` is one in the composition root.
  */
-class FormatMoney(private val locale: Locale = Locale.getDefault()) {
+class FormatMoney(private val locale: () -> Locale = { Locale.getDefault() }) {
 
     /** [money] as `$100.00`, `5 Gems`, `1 Gem` — whatever its currency's template asks for. */
     operator fun invoke(money: Money): String {
         val currency = money.currency
-        val amount = NumberFormat.getNumberInstance(locale).apply {
+        val amount = NumberFormat.getNumberInstance(locale()).apply {
             // Both bounds, so a 2-digit currency shows 100.00 rather than NumberFormat's default 100.
             minimumFractionDigits = currency.fractionalDigits
             maximumFractionDigits = currency.fractionalDigits
@@ -36,9 +38,7 @@ class FormatMoney(private val locale: Locale = Locale.getDefault()) {
             when (match.value) {
                 "<amount>" -> amount
                 "<symbol>" -> currency.symbol
-                // compareTo, not equals: BigDecimal("1.00") != BigDecimal("1") (Money's KDoc), and a
-                // balance of exactly one coin must not read "1.00 Coins".
-                else -> if (money.amount.compareTo(BigDecimal.ONE) == 0) currency.singular else currency.plural
+                else -> currency.nameFor(money.amount)
             }
         }
     }

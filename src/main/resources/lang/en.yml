@@ -1,0 +1,59 @@
+# Geckonomy — default language (English). See docs/LOCALIZATION.md.
+#
+# Copy this file to <code>.yml, translate the values, and set settings.language to <code>. Keep the
+# keys and the <placeholders> intact — the text around them is yours, the tags are not.
+#
+# Values are MiniMessage: <green>...</green>, <bold>, <#ff8800>, and so on. Placeholders are filled per
+# message; which ones a message gets is fixed by the code that sends it (LOCALIZATION.md §3), so a tag
+# this file invents renders as literal text rather than failing.
+#
+# <prefix> is injected into every message, so any line can lead with it.
+#
+# Player-supplied text (<target>, <sender>, <name>) is inserted *unparsed*: a player named
+# <red>bob</red> shows up as those literal characters, never as markup. That is a security property,
+# not a formatting quirk — do not "fix" it.
+#
+# This file also ships inside the jar as the last-resort fallback. A key missing from your active
+# language falls back to your en.yml, then to the bundled copy, so a Geckonomy update that adds a
+# message never leaves a raw key on screen.
+
+prefix: "<gray>[<aqua>Geckonomy</aqua>]</gray> "
+
+balance:
+  self: "<prefix><green>Balance:</green> <white><formatted></white>"
+  other: "<prefix><white><target></white>'s balance: <white><formatted></white>"
+
+pay:
+  sent: "<prefix><green>Sent <white><formatted></white> to <white><target></white>.</green>"
+  received: "<prefix><green>Received <white><formatted></white> from <white><sender></white>.</green>"
+  insufficient: "<prefix><red>You don't have <white><formatted></white>.</red>"
+  self: "<prefix><red>You can't pay yourself.</red>"
+
+baltop:
+  header: "<prefix><gold>Top balances (<currency>)</gold>"
+  entry: "<gray><rank>.</gray> <white><name></white> — <formatted>"
+  empty: "<prefix><gray>Nobody has any <currency> yet.</gray>"
+
+admin:
+  given: "<prefix><green>Gave <white><formatted></white> to <white><target></white>.</green>"
+  taken: "<prefix><green>Took <white><formatted></white> from <white><target></white>.</green>"
+  set: "<prefix><green>Set <white><target></white>'s balance to <white><formatted></white>.</green>"
+  reset: "<prefix><green>Reset <white><target></white>'s balance to <white><formatted></white>.</green>"
+  reloaded: "<prefix><green>Configuration reloaded.</green>"
+  reload-failed: "<prefix><red>Reload failed — the previous configuration is still running. See the console for what to fix.</red>"
+  version: "<prefix><gray>Geckonomy <white><version></white></gray>"
+
+error:
+  unknown-currency: "<prefix><red>Unknown currency: <white><currency></white>.</red>"
+  account-not-found: "<prefix><red>No account for <white><target></white>.</red>"
+  insufficient-funds: "<prefix><red><white><target></white> doesn't have <white><formatted></white>.</red>"
+  invalid-amount: "<prefix><red>Invalid amount.</red>"
+  # Deliberately vague: the cause is in the console, and a player can act on none of it.
+  storage: "<prefix><red>Something went wrong. Try again, and tell an admin if it keeps happening.</red>"
+  no-permission: "<prefix><red>You don't have permission to do that.</red>"
+  no-currency-permission: "<prefix><red>You can't use <white><currency></white> here.</red>"
+  not-transferable: "<prefix><red><white><currency></white> can't be paid to other players.</red>"
+  others-hidden: "<prefix><red>You can't view others' <white><currency></white> balance.</red>"
+  player-not-found: "<prefix><red>No player named <white><target></white>.</red>"
+  players-only: "<prefix><red>Only a player can run that. Name a player: <white><usage></white></red>"
+  usage: "<prefix><red>Usage: <white><usage></white></red>"

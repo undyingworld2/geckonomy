@@ -11,7 +11,7 @@ class FormatMoneyTest {
 
     // Fixed, not the JVM default: grouping separators differ by locale, and a suite that passed in
     // en-US and failed in de-DE would be testing the machine, not the code.
-    private val format = FormatMoney(Locale.US)
+    private val format = FormatMoney { Locale.US }
 
     @Test
     fun `renders the symbol-first template`() {
@@ -76,5 +76,27 @@ class FormatMoneyTest {
         val free = TestCurrencies.COINS.copy(format = "free")
 
         assertEquals("free", format(Money(BigDecimal("7.00"), free)))
+    }
+
+    @Test
+    fun `groups by the locale it is given`() {
+        // M5 wires this to settings.language, so a German server reads German text *and* German
+        // grouping rather than one of each.
+        val german = FormatMoney { Locale.GERMANY }
+
+        assertEquals("$1.234.567,89", german(Money(BigDecimal("1234567.89"), TestCurrencies.COINS)))
+    }
+
+    @Test
+    fun `reads the locale per call, so a reload can change it`() {
+        // The supplier is not decoration: settings.language is reloadable, and a captured locale would
+        // make /geckonomy reload report success while formatting the old way forever.
+        var locale = Locale.US
+        val reloadable = FormatMoney { locale }
+        assertEquals("$1,000.00", reloadable(Money(BigDecimal("1000.00"), TestCurrencies.COINS)))
+
+        locale = Locale.GERMANY
+
+        assertEquals("$1.000,00", reloadable(Money(BigDecimal("1000.00"), TestCurrencies.COINS)))
     }
 }
