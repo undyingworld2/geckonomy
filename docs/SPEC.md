@@ -26,7 +26,11 @@ Geckonomy without knowing its storage or internals.
 - Per-world economies.
 - Cross-server **live** balance sync (Redis). Network-scoped balances themselves ship in v1.
 - Per-player language selection.
-- PlaceholderAPI expansion, importers.
+- Importers.
+
+**Planned, post-v1**
+- **PlaceholderAPI expansion** — specified in §4.7, built at **M9**. Read-only and mirror-backed: it
+  exposes what the economy already knows, and adds no way to change a balance.
 
 ## 2. Glossary
 
@@ -109,6 +113,44 @@ Geckonomy without knowing its storage or internals.
 - FR-L2 Messages are authored in MiniMessage and support placeholders.
 - FR-L3 Server language is selectable in config; missing keys fall back to the default language.
 
+### 4.7 Placeholders (M9)
+
+A **PlaceholderAPI expansion** under the identifier `geckonomy`, letting scoreboard, tab-list, hologram
+and chat plugins display balances, currency names and leaderboards. **Read-only**: it exposes what the
+economy already knows and adds no way to change a balance. Full placeholder table and parsing rules in
+`tasks/M9-placeholders.md`.
+
+- FR-P1 Register a `PlaceholderExpansion` under identifier `geckonomy` when PlaceholderAPI is
+  installed, with `persist() = true` — an internal expansion is otherwise unregistered on `/papi
+  reload`. PlaceholderAPI is a **soft** dependency: absent, Geckonomy enables normally and says so in
+  the log. Same posture as Vault (FR-V1).
+- FR-P2 Expose, per currency: symbol, singular and plural name, fractional digits.
+- FR-P3 Expose the requesting player's balance per currency — raw, formatted per the currency's
+  `format` template, comma-grouped, and truncated to whole units.
+- FR-P4 Expose the currency name **agreeing with an amount** (`Currency.nameFor`, so a balance of
+  exactly one reads "1 Coin" and never "1.00 Coins").
+- FR-P5 Expose a formatted rendering of an **arbitrary** amount, through the same `FormatMoney` a
+  command uses — one formatter, so a placeholder and `/balance` can never disagree.
+- FR-P6 Expose the leaderboard per currency: name and balance at a given rank, and the requesting
+  player's own rank.
+- FR-P7 **Placeholders never perform database IO.** Balances are served from the online-player mirror
+  and the leaderboard from a periodically-refreshed snapshot. Anything unknown renders a configurable
+  fallback string. This is stricter than the Vault sync path, which may do a bounded blocking read for
+  an un-mirrored account (§5 NFR-1, `ARCHITECTURE.md §4`), and the difference is deliberate: Vault is
+  asked once per shop sale, whereas a placeholder is re-rendered **every tick, for every viewer, for
+  offline players too**. The fallback that is a rare path for Vault would be the common one here.
+- FR-P8 An unrecognized placeholder returns `null`, so PlaceholderAPI leaves the text as it found it.
+  Never an exception into PAPI's render loop, and never a fabricated value that a player would read as
+  a real balance.
+- FR-P9 The per-currency **config flags do not gate placeholders**: `transferable`,
+  `balance-check-others` and `show-in-baltop` are rules about a *command* — an actor doing something,
+  or a viewer looking at someone else — and PlaceholderAPI supplies neither an actor nor a viewer, only
+  the target player. Placeholders are a raw data surface; the flags stay a command-layer concern.
+  **A consequence worth stating plainly rather than discovering:** a `show-in-baltop: false` currency
+  is still reachable through the leaderboard placeholders, so that flag hides a currency from
+  `/baltop` and not from a hologram. Per-currency permission nodes are likewise unenforceable here —
+  placeholders are not a privacy boundary, and a server that needs one must not print the placeholder.
+
 ## 5. Non-functional requirements
 
 - NFR-1 **No main-thread DB IO.** All database access runs on a dedicated dispatcher; the sync Vault
@@ -137,6 +179,7 @@ Geckonomy without knowing its storage or internals.
 | Cross-server live sync | ❌ | Network-scoped balances share a DB, but live propagation (Redis) is future; interim refresh-behind-the-read (see `ARCHITECTURE.md §4`) |
 | Legacy Vault (v1) `Economy` provider | ✅ v1 | Register the *original* `net.milkbowl.vault.economy.Economy` (bundled in VaultUnlockedAPI) alongside v2, for the many plugins still bound to it. Single-currency → default currency. |
 | Legacy Vault (v1) bank methods | ❌ | `hasBankSupport()=false`; bank methods return `NOT_IMPLEMENTED` (banks deferred; distinct from VaultUnlocked shared accounts) |
+| PlaceholderAPI expansion | ⏳ M9 | Identifier `geckonomy`; soft dependency; read-only; mirror-backed, never touches the database (§4.7) |
 
 ## 7. Commands & permissions
 
@@ -174,8 +217,11 @@ admin `op`.
 ## 9. Reserved features (post-v1)
 
 Shared/bank accounts + `AccountPermission` (incl. legacy v1 bank methods); cross-server live sync
-(Redis); per-world economies; per-player language; PlaceholderAPI expansion; transaction-history
-command; importers. Schema and interfaces are shaped so these land without breaking v1 contracts.
+(Redis); per-world economies; per-player language; transaction-history command; importers. Schema and
+interfaces are shaped so these land without breaking v1 contracts.
+
+_(The **PlaceholderAPI expansion** has left this list: it is specified in §4.7 and scheduled as **M9**
+— `tasks/M9-placeholders.md`. It is still post-v1, but it is no longer merely reserved.)_
 
 _(Note: the legacy v1 `Economy` **player** API ships in v1 — see §6 capability matrix and FR-V6 — only
 its bank methods are deferred with shared accounts.)_

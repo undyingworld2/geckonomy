@@ -193,6 +193,20 @@ Pure model + ports, fully unit-tested.
   contributor without Docker gets the other 700 rather than a hard failure — the release build runs
   where Docker does, and "0 skipped" is the thing to check.
 
+### M9 — PlaceholderAPI expansion  ·  `tasks/M9-placeholders.md`
+A read-only `geckonomy` expansion: currency symbol/name/digits, the player's balance per currency
+(raw, formatted, comma-grouped, fixed), an arbitrary amount through `FormatMoney`, and the
+leaderboard (name/balance at rank, own rank).
+- `GeckonomyExpansion` (the only class naming a PAPI type), `PlaceholderResolver` (all the logic, no
+  PAPI types, plain-JUnit testable), `BaltopSnapshot` (timer-refreshed leaderboard cache).
+- Soft dependency + presence check + `AutoCloseable` registration, exactly as M6 did for Vault.
+- `placeholders:` config block; `me.clip:placeholderapi` at `provided` scope.
+- **Depends on:** M4, M5, M7 — the leaderboard needs `ListTopBalances`, which M7 added for `/baltop`.
+- **Done when:** every placeholder in the M9 table renders on a live Paper server through a real
+  scoreboard plugin; the expansion survives `/papi reload`; the plugin still enables cleanly with
+  PlaceholderAPI **absent**; and `spark` shows **no JDBC frames on the main thread** while a
+  scoreboard renders leaderboard placeholders for online and offline players alike.
+
 ---
 
 ## Future (post-v1)
@@ -211,4 +225,4 @@ Schema and interfaces are already shaped for these:
   existed. Today those players read as `0` rather than the currency's `starting-balance`, which is
   what `BalanceRepository.adjust`'s "a missing row counts as zero" contract forces (M4). Harmless, but
   an admin may want the opening balance handed out retroactively.
-- PlaceholderAPI expansion, transaction-history command, importers from other economy plugins.
+- Transaction-history command, importers from other economy plugins.
