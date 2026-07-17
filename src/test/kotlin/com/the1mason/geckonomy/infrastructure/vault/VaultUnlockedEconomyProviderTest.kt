@@ -50,7 +50,7 @@ class VaultUnlockedEconomyProviderTest {
             currencies = fixture.currencies,
             sync = sync,
             responses = responses,
-            asyncEconomy = GeckonomyAsyncEconomy(fixture.service, fixture.currencies, scope, responses),
+            asyncEconomy = GeckonomyAsyncEconomy(fixture.service, fixture.currencies, scope, responses, log.logger),
             logger = log.logger,
         )
     }
@@ -78,7 +78,7 @@ class VaultUnlockedEconomyProviderTest {
         val sync = VaultSyncPath(fixture.service, mirror, scope, StorageType.SQLITE, log.logger)
         val provider = VaultUnlockedEconomyProvider(
             { live }, fixture.service, fixture.currencies, sync, responses,
-            GeckonomyAsyncEconomy(fixture.service, fixture.currencies, scope, responses), log.logger,
+            GeckonomyAsyncEconomy(fixture.service, fixture.currencies, scope, responses, log.logger), log.logger,
         )
 
         live = false

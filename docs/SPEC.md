@@ -12,7 +12,8 @@ Geckonomy without knowing its storage or internals.
 **In scope (v1)**
 - Personal, owner-only accounts keyed by player UUID.
 - Multiple currencies defined in config, one marked default.
-- Global balances (not per-world, not per-server).
+- Balances scoped **per currency**: `network` (shared by every server on the same DB) or `server`
+  (private to one instance). Never per-world. See FR-C5.
 - Local **SQLite** or remote **MariaDB** storage, selectable by config.
 - VaultUnlocked v2 provider registration with multi-currency + async capability.
 - Player & admin commands, permissions.
@@ -20,11 +21,12 @@ Geckonomy without knowing its storage or internals.
 - Audit ledger of transactions.
 
 **Out of scope for v1 (reserved, see §9)**
-- Shared/bank accounts and `AccountPermission` membership (schema is prepared).
+- Shared/bank accounts and `AccountPermission` membership (schema is prepared), including the legacy
+  Vault v1 *bank* methods. The legacy v1 **player** API ships in v1 — see FR-V6 and §6.
 - Per-world economies.
-- Cross-server balance sync (Redis).
+- Cross-server **live** balance sync (Redis). Network-scoped balances themselves ship in v1.
 - Per-player language selection.
-- PlaceholderAPI expansion, importers, legacy Vault bridge.
+- PlaceholderAPI expansion, importers.
 
 ## 2. Glossary
 
@@ -132,7 +134,7 @@ Geckonomy without knowing its storage or internals.
 | Shared accounts (VaultUnlocked banks) | ❌ false | Reserved; `gk_account_member` schema ready |
 | Async | ✅ true | `AsyncEconomy` provided |
 | Per-world balances | ❌ | `world` param accepted, ignored |
-| Cross-server live sync | ❌ | Network-scoped balances share a DB, but live propagation (Redis) is future; interim read-through (see `ARCHITECTURE.md §4`) |
+| Cross-server live sync | ❌ | Network-scoped balances share a DB, but live propagation (Redis) is future; interim refresh-behind-the-read (see `ARCHITECTURE.md §4`) |
 | Legacy Vault (v1) `Economy` provider | ✅ v1 | Register the *original* `net.milkbowl.vault.economy.Economy` (bundled in VaultUnlockedAPI) alongside v2, for the many plugins still bound to it. Single-currency → default currency. |
 | Legacy Vault (v1) bank methods | ❌ | `hasBankSupport()=false`; bank methods return `NOT_IMPLEMENTED` (banks deferred; distinct from VaultUnlocked shared accounts) |
 

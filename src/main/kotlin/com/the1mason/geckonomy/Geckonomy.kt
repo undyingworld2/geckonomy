@@ -64,6 +64,7 @@ import com.the1mason.geckonomy.infrastructure.vault.OnlineBalanceMirror
 import com.the1mason.geckonomy.infrastructure.vault.VaultRegistration
 import com.the1mason.geckonomy.infrastructure.vault.VaultSyncPath
 import com.zaxxer.hikari.HikariDataSource
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,6 +74,7 @@ import kotlinx.coroutines.runBlocking
 import org.bukkit.plugin.java.JavaPlugin
 import java.time.Clock
 import java.util.Locale
+import java.util.logging.Level
 import java.util.logging.Logger
 import kotlin.io.path.exists
 
@@ -87,8 +89,18 @@ class Geckonomy : JavaPlugin() {
      * and command logic does more than query, so running it there would serialize the whole plugin
      * behind one thread to no purpose. Database work reaches the IO threads because the repositories
      * put it there themselves, not because their caller was dispatched correctly.
+     *
+     * The handler is a net, not a plan. Every launch site is expected to catch its own failures and
+     * tell whoever asked — this only catches what one of them missed, and it logs, because by then
+     * there is no sender left to answer. A [SupervisorJob] without it drops the exception on the JVM's
+     * default handler, which is how a bug becomes a command that silently never replies.
      */
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineName("geckonomy"))
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default + CoroutineName("geckonomy") +
+            CoroutineExceptionHandler { context, e ->
+                logger.log(Level.SEVERE, "Geckonomy bug escaped ${context[CoroutineName]?.name ?: "a coroutine"}", e)
+            },
+    )
 
     private var config: ConfigService? = null
 
@@ -177,6 +189,7 @@ class Geckonomy : JavaPlugin() {
             ),
             eco = EcoCommand(economy.service, targets, replies, economy.format),
             geckonomy = GeckonomyCommand(config, messages, replies, permissions, logger, pluginMeta.version),
+            logger = logger,
         ).register()
     }
 
@@ -291,7 +304,8 @@ class Geckonomy : JavaPlugin() {
                 val config = service.current
                 logger.info(
                     "Loaded ${config.currencies.size} currencies " +
-                        "(default: ${service.currencies.default().code}); storage: ${config.storage.type}.",
+                        "(default: ${service.currencies.default().code}); storage: ${config.storage.type}; " +
+                        "language: ${config.settings.language}.",
                 )
                 service
             }
@@ -321,8 +335,12 @@ class Geckonomy : JavaPlugin() {
         } catch (e: Exception) {
             io.close()
             logger.severe("Geckonomy cannot start - storage is unavailable:")
-            logger.severe("  - ${e.message ?: e.toString()}")
+            // The whole chain, not just e.message. Hikari's own message is the *symptom*
+            // ("Failed to get driver instance"); the cause underneath it is the diagnosis, and an
+            // operator reading this has no other way to reach it. M8 lost an afternoon to that.
+            generateSequence(e, Throwable::cause).forEach { logger.severe("  - ${it.message ?: it.toString()}") }
             logger.severe("Check the storage section of config.yml and that the database is reachable.")
+            logger.log(Level.FINE, "Storage open failed", e)
             disable()
             null
         }

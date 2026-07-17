@@ -8,6 +8,7 @@ import com.the1mason.geckonomy.infrastructure.config.ConfigService
 import com.the1mason.geckonomy.infrastructure.config.StartOutcome
 import com.the1mason.geckonomy.infrastructure.i18n.ErrorMessages
 import com.the1mason.geckonomy.infrastructure.i18n.LanguageRepository
+import com.the1mason.geckonomy.infrastructure.i18n.LogCapture
 import com.the1mason.geckonomy.infrastructure.i18n.MessageService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -54,6 +55,17 @@ internal class CommandHarness(val fixture: EconomyFixture = EconomyFixture()) {
 
     /** `settings.baltop-size`. A `var` so a test can shrink it and watch the limit apply. */
     var baltopSize: Int = 10
+
+    /**
+     * How `/baltop` reads [baltopSize] — the real command takes a supplier, because the setting is
+     * reloadable. Overridable so a test can make the *read* throw: that is what a bug inside a command
+     * coroutine actually looks like, and the alternative is a fake command class that proves nothing
+     * about the real wiring.
+     */
+    var baltopSizeSupplier: () -> Int = { baltopSize }
+
+    /** What the commands logged, for the tests that treat a log line as the behaviour under test. */
+    val log = LogCapture()
 
     val messages: MessageService = MessageService(
         // An empty directory: LanguageRepository falls through to the en.yml bundled in the jar, which
@@ -130,12 +142,13 @@ internal class CommandHarness(val fixture: EconomyFixture = EconomyFixture()) {
                 ),
                 baltop = BaltopCommand(
                     harness.economy, access, replies, harness.messages, fixture.format, main,
-                    size = { harness.baltopSize },
+                    size = { harness.baltopSizeSupplier() },
                 ),
                 eco = EcoCommand(harness.economy, targets, replies, fixture.format),
                 geckonomy = GeckonomyCommand(
                     harness.config, harness.messages, replies, permissions, logger, VERSION,
                 ),
+                logger = harness.log.logger,
             ).register()
         }
     }

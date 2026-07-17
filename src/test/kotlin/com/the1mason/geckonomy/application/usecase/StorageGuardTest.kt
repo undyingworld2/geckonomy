@@ -115,4 +115,55 @@ class StorageGuardTest {
 
         assertEquals(0, built, "the happy path must not pay for a message nobody reads")
     }
+
+    // ── Slow operations (SPEC.md NFR-8) ─────────────────────────────────
+
+    /** A fake clock, so a "slow" operation costs the suite nothing (CODING_STANDARDS.md §6). */
+    private var now = 0L
+    private val timed = StorageGuard(logger) { now }
+
+    private fun takingMillis(ms: Long): suspend () -> Outcome<Int> = { now += ms * 1_000_000; Outcome.Success(1) }
+
+    @Test
+    fun `warns when a storage operation runs long`() = runBlocking {
+        timed.guarding({ "reading alice's balance" }, takingMillis(300))
+
+        assertEquals(Level.WARNING, logged.single().level)
+        assertTrue(logged.single().message.contains("300ms"), logged.single().message)
+        assertTrue(logged.single().message.contains("reading alice's balance"))
+    }
+
+    @Test
+    fun `stays quiet for an operation that returns promptly`() = runBlocking {
+        timed.guarding({ "reading alice's balance" }, takingMillis(20))
+
+        assertTrue(logged.isEmpty(), "a fast query is the normal case and must not log")
+    }
+
+    /**
+     * The throttle is what makes the warning survivable. A shop plugin polling a sick database would
+     * otherwise print a line per call, and the console stops being read long before the operator
+     * notices the first one.
+     */
+    @Test
+    fun `throttles the warning and says how many it swallowed`() = runBlocking {
+        repeat(5) { timed.guarding({ "reading" }, takingMillis(300)) }
+
+        assertEquals(1, logged.size, "five slow calls inside the window are one warning")
+
+        now += 31_000_000_000 // past the window
+        timed.guarding({ "reading" }, takingMillis(300))
+
+        assertEquals(2, logged.size)
+        assertTrue(logged[1].message.contains("4 more suppressed"), logged[1].message)
+    }
+
+    @Test
+    fun `does not warn about the slowness of a call that failed`() = runBlocking {
+        // It already logged, with the cause. "And it was slow" is not the useful half.
+        timed.guarding<Int>({ "reading" }) { now += 300_000_000; throw SQLException("connection reset") }
+
+        assertEquals(1, logged.size)
+        assertTrue(logged.single().message.startsWith("Storage failure"), logged.single().message)
+    }
 }

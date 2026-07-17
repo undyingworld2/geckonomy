@@ -9,9 +9,9 @@ import java.util.concurrent.ConcurrentHashMap
  * Online players' balances, so the synchronous Vault path can answer without touching the database
  * (ARCHITECTURE.md §4).
  *
- * A read-through cache, never a write-behind buffer: a write updates the mirror *and* dispatches the
- * authoritative database write. The database stays the source of truth, and [put] only ever records
- * what was — or is about to be — written to it.
+ * A read cache, never a write-behind buffer: the database stays the source of truth, and [put] stores
+ * only a balance it actually returned — never one the adapter predicted. A write awaits its use case
+ * precisely so there is a real answer to store (ARCHITECTURE.md §4).
  *
  * Keyed by `(AccountId, CurrencyCode)` and nothing else. Scope resolution belongs to the persistence
  * layer, which already turns `currency.scope` + the server id into a `scope_key`; a mirror that also

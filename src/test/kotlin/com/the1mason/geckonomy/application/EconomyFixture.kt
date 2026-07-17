@@ -28,6 +28,7 @@ import com.the1mason.geckonomy.domain.model.AccountType
 import com.the1mason.geckonomy.domain.policy.CurrencyValidation
 import com.the1mason.geckonomy.domain.policy.OverdraftPolicy
 import com.the1mason.geckonomy.domain.policy.RoundingPolicy
+import com.the1mason.geckonomy.domain.port.CurrencyRegistry
 import com.the1mason.geckonomy.infrastructure.config.ConfigCurrencyRegistry
 import java.time.Clock
 import java.time.Instant
@@ -46,8 +47,14 @@ import java.util.logging.Logger
  * @param allowOverdraft compiled into one [OverdraftPolicy] shared by the balance fake and the use
  *   cases — as in production, where the same instance backs the repository's SQL guard and
  *   `SetBalance`'s check, so the two cannot disagree.
+ * @param currencies overridable for the one test that needs the registry itself to fail. Unlike the
+ *   repositories, it is not behind [StorageGuard] — it is in-memory and cannot fail in production —
+ *   so a caller that touches it is holding the exception, and that is worth being able to prove.
  */
-internal class EconomyFixture(allowOverdraft: Boolean = false) {
+internal class EconomyFixture(
+    allowOverdraft: Boolean = false,
+    val currencies: CurrencyRegistry = ConfigCurrencyRegistry(listOf(TestCurrencies.COINS, TestCurrencies.GEMS)),
+) {
 
     val clock: Clock = Clock.fixed(NOW, ZoneOffset.UTC)
 
@@ -55,7 +62,6 @@ internal class EconomyFixture(allowOverdraft: Boolean = false) {
     private var nextId = 0
     private val ids = { txId(++nextId) }
 
-    val currencies = ConfigCurrencyRegistry(listOf(TestCurrencies.COINS, TestCurrencies.GEMS))
     val overdraft = OverdraftPolicy(allowOverdraft)
     val rounding = { RoundingPolicy() }
 

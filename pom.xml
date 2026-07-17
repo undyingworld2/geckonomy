@@ -6,7 +6,7 @@
 
     <groupId>com.the1mason</groupId>
     <artifactId>geckonomy</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <packaging>jar</packaging>
 
     <name>geckonomy</name>
@@ -15,10 +15,11 @@
     <!--
       Runtime dependency delivery: Paper PluginLoader (see GeckonomyLoader), not shade-relocate.
       Rationale (docs/tasks/M0-foundation.md step 1): Paper gives each plugin an isolated classloader,
-      so relocation buys nothing, and the loader keeps the shipped jar slim (~100 KB vs ~20 MB).
-      Consequence: every runtime library below is `provided` here — compiled against, but fetched at
-      server start by GeckonomyLoader. Adding a runtime library means editing BOTH this pom and
-      GeckonomyLoader, which share the version properties below to keep them from drifting.
+      so relocation buys nothing, and the loader keeps the shipped jar slim (~0.5 MB of our own
+      bytecode, against ~20 MB shaded). Consequence: every runtime library below is `provided` here —
+      compiled against, but fetched at server start by GeckonomyLoader. Adding a runtime library means
+      editing BOTH this pom and geckonomy-libraries.txt, which share the version properties below to
+      keep them from drifting.
     -->
     <properties>
         <java.version>25</java.version>
@@ -119,6 +120,23 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.4</version>
+            </plugin>
+            <!--
+              Implementation-Version in the manifest, so a jar someone found in a plugins folder can
+              say what it is. paper-plugin.yml carries the version Paper reads; this is for everyone
+              holding the file rather than running it.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.1</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+                        </manifest>
+                    </archive>
+                </configuration>
             </plugin>
         </plugins>
         <resources>

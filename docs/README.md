@@ -28,7 +28,8 @@ a time, in order; each lists files to create, implementation notes, and acceptan
 - Per-currency **command permissions** and hard config flags (`transferable`, `balance-check-others`,
   `show-in-baltop`) gate `balance`/`pay`/`baltop`.
 - **DB is the single source of truth**; all IO runs off the main thread. A minimal online-player mirror
-  serves the synchronous Vault path (network currencies read through until Redis sync ships).
+  serves the synchronous Vault path; a network currency on MariaDB refreshes behind the read until
+  Redis sync ships.
 - Register **both** the VaultUnlocked **v2** `Economy` (multi-currency) **and** the legacy **v1**
   `net.milkbowl.vault.economy.Economy` (single-currency → default) from the first release — both ship in
   the existing VaultUnlockedAPI dependency.

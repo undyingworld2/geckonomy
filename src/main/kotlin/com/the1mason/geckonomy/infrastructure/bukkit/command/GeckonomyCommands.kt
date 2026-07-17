@@ -4,6 +4,7 @@ import com.mojang.brigadier.arguments.StringArgumentType
 import com.mojang.brigadier.context.CommandContext
 import com.mojang.brigadier.suggestion.SuggestionProvider
 import com.mojang.brigadier.tree.LiteralCommandNode
+import com.the1mason.geckonomy.application.result.EconomyError
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.domain.model.CurrencyCode
 import com.the1mason.geckonomy.domain.port.CurrencyRegistry
@@ -19,6 +20,9 @@ import kotlinx.coroutines.launch
 import org.bukkit.command.CommandSender
 import org.bukkit.plugin.Plugin
 import java.math.BigDecimal
+import java.util.logging.Level
+import java.util.logging.Logger
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Registers every command with Paper's Brigadier API (`docs/tasks/M7-commands.md`).
@@ -44,6 +48,7 @@ internal class GeckonomyCommands(
     private val baltop: BaltopCommand,
     private val eco: EcoCommand,
     private val geckonomy: GeckonomyCommand,
+    private val logger: Logger,
 ) {
 
     /**
@@ -68,7 +73,7 @@ internal class GeckonomyCommands(
 
     private fun balanceNode(): GeckonomyNode = Commands.literal("balance")
         .requires { it.sender.hasPermission(Action.BALANCE.base) }
-        .executes { ctx -> run(ctx) { sender, currency -> balance.execute(sender, currency, null, null) } }
+        .executes { ctx -> run(ctx, "checking a balance") { sender, currency -> balance.execute(sender, currency, null, null) } }
         .then(
             // One argument for two meanings. `/balance coins` and `/balance Notch` are the same shape
             // to Brigadier — two `word()` children would not disambiguate by content, they would just
@@ -89,7 +94,7 @@ internal class GeckonomyCommands(
         val word = ctx.string("target")!!
         val asCurrency = currencies.byCode(CurrencyCode.parseOrNull(word) ?: return balanceOther(ctx, null))
         return if (asCurrency != null) {
-            run(ctx, word) { sender, currency -> balance.execute(sender, currency, null, null) }
+            run(ctx, "checking a balance", word) { sender, currency -> balance.execute(sender, currency, null, null) }
         } else {
             balanceOther(ctx, null)
         }
@@ -111,7 +116,7 @@ internal class GeckonomyCommands(
         }
         val target = ctx.string("target")!!
         val quick = targets.fromServer(target)
-        return run(ctx, currencyArg) { s, currency -> balance.execute(s, currency, target, quick) }
+        return run(ctx, "checking $target's balance", currencyArg) { s, currency -> balance.execute(s, currency, target, quick) }
     }
 
     // ── /pay <player> <amount> [currency] ────────────────────────────────
@@ -136,7 +141,7 @@ internal class GeckonomyCommands(
         val target = ctx.string("player")!!
         val amount = parseAmount(ctx.string("amount")!!)
         val quick = targets.fromServer(target)
-        return run(ctx, currencyArg) { sender, currency ->
+        return run(ctx, "paying $target", currencyArg) { sender, currency ->
             if (amount == null) replies.send(sender, MessageKey.ERROR_INVALID_AMOUNT)
             else pay.execute(sender, currency, target, amount, quick)
         }
@@ -146,10 +151,10 @@ internal class GeckonomyCommands(
 
     private fun baltopNode(): GeckonomyNode = Commands.literal("baltop")
         .requires { it.sender.hasPermission(Action.BALTOP.base) }
-        .executes { ctx -> run(ctx) { sender, currency -> baltop.execute(sender, currency) } }
+        .executes { ctx -> run(ctx, "listing the top balances") { sender, currency -> baltop.execute(sender, currency) } }
         .then(
             currencyArgument(Action.BALTOP)
-                .executes { ctx -> run(ctx, ctx.string("currency")) { s, c -> baltop.execute(s, c) } },
+                .executes { ctx -> run(ctx, "listing the top balances", ctx.string("currency")) { s, c -> baltop.execute(s, c) } },
         )
         .build()
 
@@ -201,7 +206,9 @@ internal class GeckonomyCommands(
             return SUCCESS
         }
         val quick = targets.fromServer(target)
-        scope.launch { eco.execute(sender, operation, currency, target, amount, quick) }
+        launchGuarded(sender, "running /eco ${operation.label} on $target") {
+            eco.execute(sender, operation, currency, target, amount, quick)
+        }
         return SUCCESS
     }
 
@@ -213,7 +220,7 @@ internal class GeckonomyCommands(
             Commands.literal("reload").executes { ctx ->
                 val sender = ctx.source.sender
                 // Off the main thread: both reloads do blocking file IO.
-                scope.launch { geckonomy.reload(sender) }
+                launchGuarded(sender, "reloading the configuration") { geckonomy.reload(sender) }
                 SUCCESS
             },
         )
@@ -235,6 +242,7 @@ internal class GeckonomyCommands(
      */
     private fun run(
         ctx: CommandContext<CommandSourceStack>,
+        what: String,
         currencyArg: String? = null,
         block: suspend (CommandSender, Currency) -> Unit,
     ): Int {
@@ -244,8 +252,34 @@ internal class GeckonomyCommands(
             replies.send(sender, MessageKey.ERROR_UNKNOWN_CURRENCY, unknownCurrency(currencyArg!!))
             return SUCCESS
         }
-        scope.launch { block(sender, currency) }
+        launchGuarded(sender, what) { block(sender, currency) }
         return SUCCESS
+    }
+
+    /**
+     * The only place a command coroutine may start.
+     *
+     * A use case reports its own failures as an `EconomyError`, so what is left to catch here is a bug
+     * above it — a handler with a hole in it, a template that throws while rendering. Uncaught, that
+     * throw reaches the scope's `SupervisorJob`, which cancels this one child and tells nobody: the
+     * command the player ran simply never answers, and silence is the one failure mode a player cannot
+     * report usefully. Answering with the same [EconomyError.StorageFailure] the guarded paths produce
+     * keeps one shape for callers, and the SEVERE log is what distinguishes a bug from a sick database
+     * (ARCHITECTURE.md §6).
+     */
+    private fun launchGuarded(sender: CommandSender, what: String, block: suspend () -> Unit) {
+        scope.launch {
+            try {
+                block()
+            } catch (e: CancellationException) {
+                // Rethrown first, for StorageGuard's reason: it is an IllegalStateException, so the
+                // arm below would eat the plugin disabling or a player quitting mid-command.
+                throw e
+            } catch (e: Exception) {
+                logger.log(Level.SEVERE, "Geckonomy bug while $what", e)
+                replies.sendError(sender, EconomyError.StorageFailure(what, e.message))
+            }
+        }
     }
 
     /** `[currency]`, completing only what the sender may actually use for [action]. */

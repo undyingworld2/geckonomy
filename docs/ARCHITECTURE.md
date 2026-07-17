@@ -40,7 +40,8 @@ com.the1mason.geckonomy
 │   │              StorageGuard, Amounts, TransactionFactory (internal, shared)
 │   ├── result     Outcome (sealed), OperationResult, TransferResult, Transferred,
 │   │              EconomyError (sealed)
-│   └── Attribution.kt
+│   ├── Attribution.kt
+│   └── Throttle.kt   "at most one warning per interval", for the logs on hot paths
 ├── infrastructure
 │   ├── persistence  DataSourceFactory, SqlDialect, SqliteDialect, MariaDbDialect,
 │   │                MigrationRunner, SqlAccountRepository, SqlBalanceRepository,
@@ -174,6 +175,19 @@ holds where it matters.
 > The mirror is the single concession to "DB-only + never block." It is a read cache, never a
 > write-behind buffer: only a value the database actually returned is ever put into it.
 
+**Observability (NFR-8).** Two things say out loud what is otherwise invisible, and both are throttled
+because a third party controls how often they happen — a plugin looping over offline players would turn
+a useful hint into the reason nobody reads the console:
+- `StorageGuard` times every guarded operation and warns past 250ms. It is the one place that sees them
+  all, and it already knows what each was doing, so the measurement costs nothing to take.
+- `VaultSyncPath` warns when an un-mirrored account sends the main thread to storage — the fallback is
+  correct and expected for an offline account, but at ~99µs a loop over them spends a tick every ~500
+  lookups, and nothing else connects the stutter to its cause.
+
+The throttle is deliberately not keyed by account or operation: the keys would come from callers, so the
+map would grow fastest exactly when the flood it exists to survive arrives. One budget per class of
+warning, plus a count of what it swallowed.
+
 ## 5. Key flows (sequences)
 
 ### Deposit (our command / async API)
@@ -253,6 +267,21 @@ caught **first and rethrown** — it is an `IllegalStateException`, so `catch (E
 otherwise swallow it, and `SqlUnitOfWork` rolls back a half-done transfer precisely because
 cancellation reaches it. There is no `Internal` error variant: a bug and a broken database read the
 same to a player, and the log level is what distinguishes them for us.
+
+**The guard protects the use cases; it does not protect their callers.** Every adapter that starts a
+coroutine catches for itself, because a throw from the code *above* the economy has no `Outcome` to
+land in:
+- `GeckonomyCommands.launchGuarded` is the only place a command coroutine may start. It logs at SEVERE
+  and answers the player with the same `StorageFailure` shape the guarded paths produce. Without it a
+  bug reached the scope's `SupervisorJob`, which cancels one child and tells nobody — the command
+  simply never replies, which is the one failure a player cannot report.
+- `PlayerConnectionListener.onPreLogin` catches around its `runBlocking`: it runs inside Bukkit's login
+  dispatch, and hydration touches the mirror and the registry outside any guard. Warming the mirror is
+  an optimisation, so failing to warm it costs latency, never entry.
+- `GeckonomyAsyncEconomy.promise` logs an exceptionally-completed future, which `future {}` would
+  otherwise swallow entirely.
+- The plugin scope carries a `CoroutineExceptionHandler` as a **net, not a plan**: by the time it fires
+  there is no sender left to answer, so it can only log.
 
 ## 7. Dependency injection
 

@@ -20,8 +20,12 @@ import java.sql.DriverManager
  * **One container for the whole class, wiped between tests.** Starting a MariaDB per test would cost
  * seconds apiece across ~35 tests for no isolation the wipe does not already give. The wipe runs in
  * [BeforeEach] rather than after, so a test that dies mid-way cannot poison the next one.
+ *
+ * `disabledWithoutDocker` so a contributor without Docker gets the other 700-odd tests instead of a
+ * hard failure. It is not permission to ship untested: a release build runs where Docker does, and
+ * "0 skipped" is the thing to check (ROADMAP.md M7).
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class MariaDbRepositoryTest : RepositoryContract() {
 
     override val dialect: SqlDialect = MariaDbDialect

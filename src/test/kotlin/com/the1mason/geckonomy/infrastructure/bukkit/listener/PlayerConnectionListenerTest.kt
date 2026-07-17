@@ -4,6 +4,9 @@ import com.the1mason.geckonomy.application.EconomyFixture
 import com.the1mason.geckonomy.application.EconomyFixture.Companion.ALICE
 import com.the1mason.geckonomy.application.result.Outcome
 import com.the1mason.geckonomy.domain.TestCurrencies
+import com.the1mason.geckonomy.domain.model.Currency
+import com.the1mason.geckonomy.domain.model.CurrencyCode
+import com.the1mason.geckonomy.domain.port.CurrencyRegistry
 import com.the1mason.geckonomy.infrastructure.config.StorageType
 import com.the1mason.geckonomy.infrastructure.i18n.LogCapture
 import com.the1mason.geckonomy.infrastructure.vault.OnlineBalanceMirror
@@ -14,6 +17,7 @@ import kotlinx.coroutines.runBlocking
 import net.kyori.adventure.text.Component
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -23,6 +27,7 @@ import org.mockbukkit.mockbukkit.MockBukkit
 import java.math.BigDecimal
 import java.net.InetAddress
 import java.sql.SQLException
+import java.util.logging.Level
 
 /**
  * Join/quit against the real event objects.
@@ -112,5 +117,27 @@ class PlayerConnectionListenerTest {
         listener.onPreLogin(preLogin())
 
         assertTrue(log.warnings().any { it.contains("could not prepare an account") }, "${log.warnings()}")
+    }
+
+    /**
+     * The other half of the one above: not a *reported* failure but a thrown one, from the part of
+     * hydration that has no guard behind it. Whatever it is, it must not reach Bukkit — this runs
+     * inside the login dispatch, and a player kept out of the server because a cache would not warm is
+     * the worst trade in the plugin.
+     */
+    @Test
+    fun `a throw while warming the mirror does not escape into the login`() {
+        val broken = EconomyFixture(currencies = object : CurrencyRegistry {
+            override fun all(): Collection<Currency> = throw IllegalStateException("registry is unhappy")
+            override fun default(): Currency = TestCurrencies.COINS
+            override fun byCode(code: CurrencyCode): Currency = TestCurrencies.COINS
+        })
+        val brokenSync = VaultSyncPath(broken.service, mirror, scope, StorageType.SQLITE, log.logger)
+        val listener = PlayerConnectionListener(broken.service, brokenSync, mirror, log.logger)
+
+        assertDoesNotThrow { listener.onPreLogin(preLogin()) }
+
+        val severe = log.records.single { it.level == Level.SEVERE }
+        assertTrue(severe.message.contains("preparing Alice for login"), severe.message)
     }
 }

@@ -50,6 +50,7 @@ class DataSourceFactory {
         // The server owner names a path; the directory under it may not exist on first start.
         file.toAbsolutePath().createParentDirectories()
         return base(config).apply {
+            driverClassName = SQLITE_DRIVER
             jdbcUrl = "jdbc:sqlite:${file.absolutePathString()}"
             maximumPoolSize = 1
             minimumIdle = 1
@@ -70,6 +71,7 @@ class DataSourceFactory {
 
     /** MariaDB: a remote server, pooled as configured. */
     private fun mariadb(config: StorageConfig): HikariConfig = base(config).apply {
+        driverClassName = MARIADB_DRIVER
         jdbcUrl = "jdbc:mariadb://${config.host}:${config.port}/${config.database}"
         username = config.username
         password = config.password
@@ -77,7 +79,25 @@ class DataSourceFactory {
         minimumIdle = config.pool.minimumIdle
     }
 
-    /** The settings both backends share. */
+    /**
+     * The settings both backends share.
+     *
+     * **`driverClassName` is not optional, and this is the trap.** Left unset, Hikari resolves the
+     * driver through `DriverManager`, whose registry is populated by a `ServiceLoader` scan of the
+     * *system* classloader — and a Paper plugin's libraries are not there. `GeckonomyLoader` puts them
+     * on our own isolated classloader, which that scan never sees, so `DriverManager` answers "no
+     * suitable driver" and Hikari reports `Failed to get driver instance`. Naming the class makes
+     * Hikari instantiate it from the classloader that actually holds it.
+     *
+     * MariaDB was the backend that exposed this, because nothing else on the server registers that
+     * driver. **SQLite only ever appeared to work by accident**: Paper ships `sqlite-jdbc` for its own
+     * use, so `DriverManager` had a SQLite driver registered — Paper's, at Paper's version, not the one
+     * `geckonomy-libraries.txt` pins. Both backends now load the driver we ship.
+     *
+     * Not reachable from a test: Testcontainers and the SQLite suites put the driver on the *system*
+     * classpath, where `DriverManager` finds it and this line changes nothing. Only a real server
+     * separates the classloaders.
+     */
     private fun base(config: StorageConfig): HikariConfig = HikariConfig().apply {
         poolName = POOL_NAME
         connectionTimeout = config.pool.connectionTimeoutMs.toLong()
@@ -93,5 +113,10 @@ class DataSourceFactory {
 
         /** How long SQLite waits on a lock held by another process before giving up. */
         const val BUSY_TIMEOUT_MS = 5_000
+
+        // Named, not referenced by class literal: these are the coordinates in
+        // geckonomy-libraries.txt, and a literal would tie compilation to the driver being present.
+        const val SQLITE_DRIVER = "org.sqlite.JDBC"
+        const val MARIADB_DRIVER = "org.mariadb.jdbc.Driver"
     }
 }

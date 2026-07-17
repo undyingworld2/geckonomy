@@ -1,7 +1,7 @@
 # Geckonomy — VaultUnlocked v2 Integration
 
-Geckonomy implements **two** economy interfaces, both bundled in VaultUnlockedAPI 2.16, and registers
-each as a Bukkit service:
+Geckonomy implements **two** economy interfaces, both bundled in VaultUnlockedAPI (the `vault.version`
+property in `pom.xml`), and registers each as a Bukkit service:
 - `net.milkbowl.vault2.economy.Economy` (**v2**, multi-currency) — primary, §1–§7 below.
 - `net.milkbowl.vault.economy.Economy` (**legacy v1**, single-currency) — §8, shipped from v1 because
   many plugins still bind to it.
@@ -16,21 +16,29 @@ both packages ship in the existing `provided` VaultUnlockedAPI artifact.**
 
 ## 1. Registration
 
-`paper-plugin.yml`: add `dependencies` on `VaultUnlocked` (softdepend acceptable — register only if
-Vault present). On enable, after wiring:
+**The dependency is named `Vault`, not `VaultUnlocked`.** VaultUnlocked ships as `name: Vault` because
+it is a drop-in replacement, and keeping the name is what leaves every plugin that depends on `Vault`
+working. The original Vault is called `Vault` too, so the *name* cannot tell them apart — only the
+original lacks the `vault2` package. `Geckonomy.vaultUnlockedInstalled()` therefore asks for the v2
+`Economy` **class**, by string; a class literal would resolve the very thing in doubt. This cost M6 a
+live smoke test to find: the presence check looked for a plugin named `VaultUnlocked`, found nothing,
+and registration silently never ran.
 
-```kotlin
-// v2 (multi-currency)
-val v2 = VaultUnlockedEconomyProvider(economyService, currencyRegistry, mirror, messageService)
-server.servicesManager.register(
-    net.milkbowl.vault2.economy.Economy::class.java, v2, this, ServicePriority.Highest)
+`paper-plugin.yml` (there is no `softdepend` in the Paper format — that is legacy `plugin.yml`):
 
-// legacy v1 (single-currency) — registered from v1; see §8
-val v1 = LegacyVaultEconomyProvider(economyService, currencyRegistry, mirror, playerResolver)
-server.servicesManager.register(
-    net.milkbowl.vault.economy.Economy::class.java, v1, this, ServicePriority.Highest)
+```yaml
+dependencies:
+  server:
+    Vault:
+      load: BEFORE          # our onEnable registers with the ServicesManager
+      required: false       # Geckonomy runs without it; only third-party integration is lost
+      join-classpath: true
 ```
-Unregister both in `onDisable`. `softdepend` Vault/VaultUnlocked so the service classes exist at runtime.
+
+`VaultRegistration` is the **only** class that names a Vault type at wiring time, so the soft dependency
+can be absent without a `NoClassDefFoundError`; `Geckonomy` holds it as an `AutoCloseable`. Both services
+register at `ServicePriority.Highest` and are unregistered on close. Both providers are built over one
+`VaultSyncPath`, which is what makes them observe one set of mirror rules (§7) rather than two copies.
 
 ## 2. Response types (from source)
 
@@ -86,9 +94,9 @@ plugin that surfaces `errorMessage`. It falls back to the UUID when no name coul
   Unknown currency → `FAILURE` (or `false`/empty for boolean/collection returns).
 - **Scope has no Vault parameter.** Whether a balance is network- or server-scoped is a property of the
   resolved `Currency` (config), not something callers pass. The persistence layer derives the scope key
-  from `currency.scope` + the config `server-id` (see `DATA_MODEL.md §7`). For **network** currencies on
-  a shared DB, the sync path reads through to the DB rather than the (possibly stale) mirror until Redis
-  sync ships — see `ARCHITECTURE.md §4`.
+  from `currency.scope` + the config `server-id` (see `DATA_MODEL.md §7`). A **network** currency on a
+  shared MariaDB is the one case the mirror can go stale, and it is answered from the mirror anyway with
+  a refresh scheduled behind the read — see §7 and `ARCHITECTURE.md §4`.
 - `UUID accountID` — the `AccountId`.
 - All amounts are `BigDecimal`, rounded to the currency's fractional digits before use.
 
@@ -118,18 +126,18 @@ plugin that surfaces `errorMessage`. It falls back to the UUID when no name coul
 ### Balance & checks
 | Vault method | Mapping |
 |---|---|
-| `getBalance(...)` / `balance(...)` (all world/currency overloads) | `GetBalance`; **online → mirror**, offline → bounded blocking read (§7) |
+| `getBalance(...)` / `balance(...)` (all world/currency overloads) | `GetBalance`; **mirrored → mirror**, un-mirrored → bounded blocking read (§7) |
 | `has(...)` (all overloads) | `Has` use case (mirror/DB) |
 | `accountSupportsCurrency(...)` | `true` for known currencies (all accounts support all currencies) |
-| `set(...)` (all overloads) | `SetBalance` → mirror update + async DB; `EconomyResponse` |
+| `set(...)` (all overloads) | `SetBalance`, awaited; then the returned balance into the mirror; `EconomyResponse` |
 
 ### Withdraw / deposit
 | Vault method | Mapping |
 |---|---|
 | `canWithdraw(...)` | pre-flight `Withdraw` check (no mutation) → `EconomyResponse` |
-| `withdraw(...)` | `Withdraw`; mirror update + async DB persist |
+| `withdraw(...)` | `Withdraw`, awaited; then the returned balance into the mirror |
 | `canDeposit(...)` | pre-flight `Deposit` check |
-| `deposit(...)` | `Deposit`; mirror update + async DB persist |
+| `deposit(...)` | `Deposit`, awaited; then the returned balance into the mirror |
 
 ### Transfers
 | Vault method | Mapping |
@@ -200,7 +208,8 @@ already have the answer to. `LegacyVaultEconomyProvider` implements the interfac
   via `BigDecimal.toDouble()`. (Precision beyond ~15 significant digits is lost — an inherent limit of
   the legacy `double` API; documented, unavoidable.)
 - **World:** ignored (as v2).
-- **Sync path:** same mirror rules as §7 (default currency's scope decides mirror vs read-through).
+- **Sync path:** same mirror rules as §7 — it is the same `VaultSyncPath` instance, not a parallel copy
+  of the rules.
 
 ### Method mapping
 | Legacy method | Mapping |
@@ -212,7 +221,7 @@ already have the answer to. `LegacyVaultEconomyProvider` implements the interfac
 | `currencyNameSingular/Plural()` | default currency names |
 | `hasAccount(...)` (all overloads) | `AccountRepository.exists` |
 | `createPlayerAccount(...)` (all overloads) | `CreateAccount` (idempotent) |
-| `getBalance(...)` (all overloads) | `GetBalance` (default currency); mirror/read-through |
+| `getBalance(...)` (all overloads) | `GetBalance` (default currency); mirror, or a bounded read when un-mirrored (§7) |
 | `has(...)` (all overloads) | `Has` (default currency) |
 | `withdrawPlayer(...)` (all overloads) | `Withdraw` → legacy `EconomyResponse` |
 | `depositPlayer(...)` (all overloads) | `Deposit` → legacy `EconomyResponse` |

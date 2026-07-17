@@ -66,6 +66,42 @@ class VaultSyncPathTest {
     }
 
     @Test
+    fun `says out loud when the main thread went to storage`() {
+        // M8 asks for this by name. The cost of a fallback is invisible from the outside — it shows up
+        // as a stutter, and this line is the only thing connecting the two.
+        runBlocking { fixture.givenAccount(ALICE) }
+
+        path().balance(ALICE, coins)
+
+        val warning = log.warnings().single()
+        assertTrue(warning.contains(coins.code.value), warning)
+        assertTrue(warning.contains(ALICE.value.toString()), warning)
+    }
+
+    @Test
+    fun `does not warn about a mirrored read`() {
+        mirror.hydrate(ALICE, mapOf(coins.code to BigDecimal("42.00")))
+
+        path().balance(ALICE, coins)
+
+        assertTrue(log.warnings().isEmpty(), "the mirrored path is the normal one and must stay silent")
+    }
+
+    /**
+     * The throttle is the difference between a hint and a reason to stop reading the console: a plugin
+     * looping over offline players hits this path once per player.
+     */
+    @Test
+    fun `throttles the fallback warning and counts what it swallowed`() {
+        runBlocking { fixture.givenAccount(ALICE) }
+        val path = path()
+
+        repeat(50) { path.balance(ALICE, coins) }
+
+        assertEquals(1, log.warnings().size, "fifty misses inside the window are one warning")
+    }
+
+    @Test
     fun `a read for an account that does not exist answers zero rather than throwing`() {
         // Vault's getBalance returns a BigDecimal. There is no way to say "no such account", and an
         // exception into a third-party plugin is never acceptable.

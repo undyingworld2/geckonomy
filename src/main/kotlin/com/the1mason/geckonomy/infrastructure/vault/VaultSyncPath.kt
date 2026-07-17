@@ -1,12 +1,14 @@
 package com.the1mason.geckonomy.infrastructure.vault
 
 import com.the1mason.geckonomy.application.Attribution
+import com.the1mason.geckonomy.application.Throttle
 import com.the1mason.geckonomy.application.result.EconomyError
 import com.the1mason.geckonomy.application.result.OperationResult
 import com.the1mason.geckonomy.application.result.Outcome
 import com.the1mason.geckonomy.application.result.TransferResult
 import com.the1mason.geckonomy.application.result.map
 import com.the1mason.geckonomy.application.service.EconomyService
+import com.the1mason.geckonomy.application.suppressedSuffix
 import com.the1mason.geckonomy.domain.model.AccountId
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.domain.model.CurrencyCode
@@ -44,6 +46,8 @@ internal class VaultSyncPath(
 
     private val refreshing = ConcurrentHashMap.newKeySet<Pair<AccountId, CurrencyCode>>()
 
+    private val fallbacks = Throttle(WARN_EVERY)
+
     fun balance(id: AccountId, currency: Currency): BigDecimal {
         mirror.get(id, currency.code)?.let { mirrored ->
             if (staleRisk(currency)) refreshBehind(id, currency)
@@ -57,6 +61,7 @@ internal class VaultSyncPath(
         // reach a Vault caller, so a failed read has to become some number. Zero is the one that fails
         // closed — [has] then says false and a shop refuses the sale rather than giving goods away.
         // It is never silent: StorageGuard logs the cause, or [read] logs the timeout.
+        warnFallback(id, currency)
         return read("balance of ${currency.code} for ${id.value}") { economy.balance(id, currency.code) }
             .map { it.amount }
             .orElse(BigDecimal.ZERO)
@@ -138,6 +143,22 @@ internal class VaultSyncPath(
     }
 
     /**
+     * Says out loud that the main thread just went to the database, which M8 asks for by name.
+     *
+     * Not an error — an offline account has no mirror entry and never will, so a shop paying one is
+     * *supposed* to land here. It is worth saying because the cost is invisible from the outside and
+     * only shows up as a stutter: at ~99us a plugin looping over offline players spends a whole tick
+     * every ~500 lookups, and this line is the only thing that connects the two.
+     */
+    private fun warnFallback(id: AccountId, currency: Currency) {
+        val suppressed = fallbacks.claim() ?: return
+        logger.warning(
+            "Geckonomy: main thread read ${currency.code.value} for ${id.value} from storage - " +
+                "not mirrored, so the account is offline or still logging in${suppressedSuffix(suppressed)}",
+        )
+    }
+
+    /**
      * A `NETWORK` currency on MariaDB is the one case another server can write behind our back, so the
      * mirror can go stale. On SQLite it cannot: the file is local, nothing else has it open, and a
      * refresh would be pure waste.
@@ -187,5 +208,7 @@ internal class VaultSyncPath(
 
     private companion object {
         val DEFAULT_TIMEOUT: Duration = 2.seconds
+
+        val WARN_EVERY: Duration = 30.seconds
     }
 }

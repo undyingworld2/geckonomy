@@ -15,8 +15,12 @@ import java.sql.DriverManager
  *
  * Its own container rather than [MariaDbRepositoryTest]'s: these tests need a database with *no*
  * schema, and sharing one would mean each suite dropping tables the other had just built.
+ *
+ * `disabledWithoutDocker` so a contributor without Docker gets the other 700-odd tests instead of a
+ * hard failure. It is not permission to ship untested: a release build runs where Docker does, and
+ * "0 skipped" is the thing to check (ROADMAP.md M7).
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class MariaDbMigrationRunnerTest : MigrationRunnerContract() {
 
     override val dialect: SqlDialect = MariaDbDialect

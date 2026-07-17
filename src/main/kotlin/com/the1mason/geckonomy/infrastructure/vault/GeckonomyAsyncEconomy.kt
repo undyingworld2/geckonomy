@@ -17,6 +17,9 @@ import java.math.BigDecimal
 import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import java.util.logging.Level
+import java.util.logging.Logger
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * The async half of the v2 API (VAULT_INTEGRATION.md §6).
@@ -30,6 +33,7 @@ internal class GeckonomyAsyncEconomy(
     private val currencies: CurrencyRegistry,
     private val scope: CoroutineScope,
     private val responses: ResponseMapper,
+    private val logger: Logger,
 ) : AsyncEconomy {
 
     // ── Accounts ────────────────────────────────────────────────────────
@@ -210,8 +214,23 @@ internal class GeckonomyAsyncEconomy(
      *
      * The scope is cancelled on disable, so a future outstanding at shutdown completes exceptionally
      * rather than running against a closed connection pool.
+     *
+     * Completing exceptionally is the contract and stays the contract — an integrator who asked for a
+     * future gets to decide what a failure means. But `future {}` also swallows it: nothing reaches the
+     * scope's handler, so a caller who never inspects the result would leave no trace anywhere. Logged
+     * here, and only here, so a failure is visible without changing what the future does.
      */
-    private fun <T> promise(block: suspend () -> T): CompletableFuture<T> = scope.future { block() }
+    private fun <T> promise(block: suspend () -> T): CompletableFuture<T> =
+        scope.future { block() }.also { future ->
+            // `also`, not `whenComplete`'s return: that is a *new* dependent stage, and handing the
+            // caller a different future than the one the scope cancels is a behaviour change for the
+            // sake of a log line. This only observes.
+            future.whenComplete { _, e ->
+                if (e != null && e !is CancellationException) {
+                    logger.log(Level.WARNING, "Geckonomy: an async economy call failed", e)
+                }
+            }
+        }
 
     private fun no(): CompletableFuture<Boolean> = CompletableFuture.completedFuture(false)
 

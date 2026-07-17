@@ -33,21 +33,31 @@ internal class PlayerConnectionListener(
     /**
      * Blocking is correct here — the event is already off the main thread and Bukkit holds the login
      * open for exactly this kind of work.
+     *
+     * Nothing thrown in here may reach Bukkit's login dispatch. [EconomyService] reports its own
+     * failures as an `Outcome`, but [VaultSyncPath.hydrate] also touches the mirror and the currency
+     * registry outside any guard, and a throw from those would refuse the login of a player whose only
+     * problem is a cold cache. Warming the mirror is an optimisation: an account that misses it has a
+     * defined fallback (ARCHITECTURE.md §4), so failing to warm it costs latency, never entry.
      */
     @EventHandler(priority = EventPriority.MONITOR)
     fun onPreLogin(event: AsyncPlayerPreLoginEvent) {
         if (event.loginResult != AsyncPlayerPreLoginEvent.Result.ALLOWED) return
         val id = AccountId(event.uniqueId)
 
-        runBlocking {
-            when (val created = economy.createAccount(id, event.name)) {
-                is Outcome.Success -> if (!created.value) renameIfChanged(id, event.name)
-                is Outcome.Failure ->
-                    // Not a reason to refuse the login: they get in, and the sync path falls back to
-                    // reading the database directly until this recovers.
-                    logger.warning("Geckonomy: could not prepare an account for ${event.name}: ${created.error}")
+        try {
+            runBlocking {
+                when (val created = economy.createAccount(id, event.name)) {
+                    is Outcome.Success -> if (!created.value) renameIfChanged(id, event.name)
+                    is Outcome.Failure ->
+                        // Not a reason to refuse the login: they get in, and the sync path falls back to
+                        // reading the database directly until this recovers.
+                        logger.warning("Geckonomy: could not prepare an account for ${event.name}: ${created.error}")
+                }
+                sync.hydrate(id)
             }
-            sync.hydrate(id)
+        } catch (e: Exception) {
+            logger.log(Level.SEVERE, "Geckonomy bug while preparing ${event.name} for login", e)
         }
     }
 

@@ -64,8 +64,9 @@ settings:
   baltop-size: 10
 
 # ── Cross-server sync (RESERVED — not active in v1) ──────────────────────
-# Live propagation of `network` currencies between servers. Until this ships,
-# network currencies read through to the DB on the synchronous Vault path.
+# Live propagation of `network` currencies between servers. Until this ships, a
+# network currency on a shared MariaDB is refreshed just after it is read, so a
+# balance another server changed shows up on the next read rather than at once.
 # redis:
 #   enabled: false
 #   host: "127.0.0.1"

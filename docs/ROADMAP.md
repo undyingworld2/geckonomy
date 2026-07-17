@@ -74,7 +74,7 @@ Pure model + ports, fully unit-tested.
   (LOCALIZATION.md §1). `FormatMoney` now takes its locale from `settings.language` rather than the
   host JVM, per call so a reload applies it.
 
-### M6 — Vault providers (v2 + legacy v1)  ·  `tasks/M6-vault-provider.md`
+### M6 — Vault providers (v2 + legacy v1)  ·  `tasks/M6-vault-provider.md`  ✅
 - `VaultUnlockedEconomyProvider` implementing v2 `Economy`; `GeckonomyAsyncEconomy`; `ResponseMapper`;
   `OnlineBalanceMirror` + join/quit listener.
 - `LegacyVaultEconomyProvider` implementing legacy `net.milkbowl.vault.economy.Economy` (single-currency
@@ -103,7 +103,7 @@ Pure model + ports, fully unit-tested.
   registration never ran; the check now tests for the v2 API class instead. Measured on the main thread
   (SQLite): mirrored read ~400 ns, un-mirrored fallback ~99 µs, awaited write ~1.4 ms median.
 
-### M7 — Commands & UX  ·  `tasks/M7-commands.md`
+### M7 — Commands & UX  ·  `tasks/M7-commands.md`  ✅
 - `/balance`, `/pay`, `/baltop`, admin `/eco give|take|set|reset`, `/geckonomy reload|version`.
 - Permissions, tab completion, async execution, localized output.
 - **Depends on:** M4, M5
@@ -144,11 +144,54 @@ Pure model + ports, fully unit-tested.
   classes, so MockK had never worked under Maven — declared since M0 and unnoticed because nothing used
   it until now. It is `mockk-jvm`.
 
-### M8 — Hardening & release  ·  `tasks/M8-hardening-release.md`
+### M8 — Hardening & release  ·  `tasks/M8-hardening-release.md`  ✅
 - Structured logging, slow-op warnings, optional bStats, error-path review.
 - Finalize docs; packaging/relocation; versioned release build.
 - **Depends on:** M0–M7
 - **Done when:** release artifact builds; docs complete; acceptance scenarios in `SPEC.md §8` pass.
+- **Done:** 717 tests green (706 at M7), 0 skipped, `geckonomy-1.0.0.jar`. bStats was dropped rather
+  than deferred — it was the only thing that wanted the shading M0 decided against, and "optional" was
+  the honest answer. Logging stayed on JUL: `application/README.md` already whitelists it, the
+  composition root already passes `JavaPlugin.logger` with no adapter, and a logging port would have
+  bought structure nobody reads at the cost of a layer.
+
+  **The live smoke test earned its place twice.** `storage.type: mariadb` **had never once worked on a
+  real server** — SPEC §8 requires the two backends to behave identically, and the milestone that was
+  supposed to prove it is where it turned out to be false. Hikari resolves a driver through
+  `DriverManager`, whose registry is a `ServiceLoader` scan of the *system* classloader;
+  `GeckonomyLoader` puts our libraries on the plugin's isolated one, which that scan never sees. The
+  test suite cannot see this and never could: Testcontainers puts the driver on the system classpath,
+  where `DriverManager` finds it regardless. **SQLite had only appeared to work** — Paper ships
+  `sqlite-jdbc` for itself, so a driver was registered, at Paper's version rather than the one
+  `geckonomy-libraries.txt` pins. `DataSourceFactory` now names `driverClassName` for both. The same
+  shape as M6's `name: Vault` discovery, and the same lesson: the classloader and the service registry
+  are the two things a unit test is structurally blind to.
+
+  It took an afternoon only because the error path threw the diagnosis away — `openStorage` logged
+  `e.message`, and Hikari's message is the symptom (`Failed to get driver instance`) while the cause
+  chain underneath holds the answer (`ConnectException: Connection refused`). It now logs the whole
+  chain. An error path that a human reads under pressure is worth the same care as the happy one.
+
+  **The error-path audit found a real bug, not hygiene.** Every use case was guarded; none of the
+  coroutines *calling* them were. A throw in a command body reached the scope's `SupervisorJob`, which
+  cancels that one child and logs nothing — so the command never replied, which is the one failure a
+  player cannot report. `GeckonomyCommands.launchGuarded` is now the only place a command coroutine
+  starts; `PlayerConnectionListener` catches around its `runBlocking` (a cold mirror must never cost a
+  player entry); `GeckonomyAsyncEconomy` logs a future that `future {}` would otherwise swallow. The
+  scope's `CoroutineExceptionHandler` is a net, not a plan — by the time it fires there is nobody left
+  to answer. Each guard was verified to fail before it was kept.
+
+  Slow-op timing went into `StorageGuard` because it is already the one place that sees every storage
+  call *and* already knows what each was doing. Warnings are throttled but not keyed: per-account keys
+  come from callers, so the map would grow fastest exactly during the flood it exists to survive.
+
+  Docs: the M6 threading rewrite had never propagated — the rejected read-through rule survived in six
+  places, including the **shipped `config.yml`**, and `VAULT_INTEGRATION.md §4` contradicted its own §7.
+  `OnlineBalanceMirror`'s own KDoc still described the optimistic write M6 rejected. `SPEC.md §1`
+  contradicted FR-C5 and FR-V6. A first user-facing `README.md` now exists at the root; everything in
+  `docs/` was written for contributors. The MariaDB suites became `disabledWithoutDocker` so a
+  contributor without Docker gets the other 700 rather than a hard failure — the release build runs
+  where Docker does, and "0 skipped" is the thing to check.
 
 ---
 
@@ -156,9 +199,10 @@ Pure model + ports, fully unit-tested.
 Schema and interfaces are already shaped for these:
 - **Shared/bank accounts** + `AccountPermission` (uses `gk_account_member`, `AccountType.SHARED`).
 - **Cross-server live sync** for `network`-scoped currencies via Redis pub/sub: publish balance-change
-  events, invalidate/refresh the online mirror on other servers so `network` currencies can be mirrored
-  instead of read-through. (Per-server scope + the `@global` keying already ship in v1; this milestone
-  adds only the live propagation.)
+  events so another server's mirror is invalidated when it changes, rather than refreshed just after it
+  is next read — which is the interim rule, and the reason a `network` balance on MariaDB can be read
+  one call stale. (Per-server scope + the `@global` keying already ship in v1; this milestone adds only
+  the live propagation.)
 - **Per-world economies** (new coordinate on repositories).
 - **Per-player language** (`MessageService` already takes a locale).
 - **Legacy Vault (v1) bank methods** — implement `createBank`/`bankDeposit`… once shared/bank accounts

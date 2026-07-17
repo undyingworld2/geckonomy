@@ -152,6 +152,17 @@ balance written on MariaDB could not be migrated to SQLite.
 - **HikariCP** pool built by `DataSourceFactory` from `StorageConfig`.
   - SQLite: `org.xerial:sqlite-jdbc`, small pool (often 1 writer), file path from config.
   - MariaDB: `org.mariadb.jdbc:mariadb-java-client`, pool size from config, host/port/db/user/pass.
+- **`driverClassName` is set explicitly for both, and must stay that way.** Without it Hikari resolves
+  the driver through `DriverManager`, whose registry comes from a `ServiceLoader` scan of the *system*
+  classloader — and `GeckonomyLoader` puts our libraries on the plugin's own isolated classloader,
+  which that scan never sees. The symptom is Hikari's `Failed to get driver instance for jdbcUrl=…`.
+  Naming the class makes Hikari instantiate it from the classloader that holds it.
+  - Found at M8 by running MariaDB on a real server for the first time. It is **invisible to the test
+    suite by construction**: Testcontainers and the SQLite suites put the driver on the system
+    classpath, where `DriverManager` finds it anyway.
+  - SQLite had only *appeared* to work — Paper ships `sqlite-jdbc` for its own use, so a SQLite driver
+    was registered already. It was Paper's copy at Paper's version, not the one
+    `geckonomy-libraries.txt` pins.
 - Pool + IO dispatcher closed cleanly in `onDisable`.
 
 ## 6. Account lifecycle
@@ -181,8 +192,8 @@ Each currency has a `scope` (`CONFIGURATION.md`): `network` or `server`. This is
 - `/baltop` for a per-server currency ranks only this server's rows (`scope_key = server-id`); for a
   network currency it ranks the `@global` rows.
 - **Live cross-server propagation** (network currency changed on server A → refresh server B's online
-  mirror) is deferred; see `ARCHITECTURE.md §4` for the interim read-through rule and `ROADMAP.md`
-  (future: Redis sync).
+  mirror) is deferred; see `ARCHITECTURE.md §4` for the interim refresh-behind-the-read rule and
+  `ROADMAP.md` (future: Redis sync).
 
 ## 8. Player identity & UUID resolution
 

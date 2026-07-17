@@ -40,7 +40,7 @@ internal class VaultRegistration(
         currencies = currencies,
         sync = sync,
         responses = responses,
-        asyncEconomy = GeckonomyAsyncEconomy(economy, currencies, scope, responses),
+        asyncEconomy = GeckonomyAsyncEconomy(economy, currencies, scope, responses, logger),
         logger = logger,
     )
 
