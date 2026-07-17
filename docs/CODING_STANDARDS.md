@@ -45,10 +45,28 @@ testable without a server.
 - Prefer deterministic tests; inject a `Clock` for time, no real sleeps.
 - MockBukkit for command/listener tests; no real server needed in CI.
 
-## 7. Formatting & docs
-- KDoc on public types and non-obvious functions. Explain *why*, not *what*.
-- Keep the docs in `docs/` in sync when contracts change (especially `VAULT_INTEGRATION.md` and
-  `DATA_MODEL.md`).
+## 7. Comments & docs
+
+**Rationale stays, description goes.** A comment earns its place by saying something the code cannot.
+If a reader could learn it from the signature, delete it.
+
+- No `@property`/`@param` tags that restate a name. `@property symbol short display marker ("$")` is
+  noise; `@param locale read per call, not captured, so a reload applies` is not.
+- No KDoc on self-evident members. A one-line `/** … */` on a public type is usually enough; many
+  members need none.
+- Comment the **trap**: an invariant, a rejected alternative that looks right, an ordering that
+  matters, a footgun in an API we call. Name the failure mode, once, in the place it bites.
+- Don't narrate the next line, restate `docs/`, or leave milestone markers (`Arrives with M7`) — the
+  roadmap tracks that, and it rots.
+- Cross-reference a doc only when the reader must go read it. One pointer beats a paragraph
+  paraphrasing the section.
+- Same bar in tests. The test name says what; a comment only says why the case matters.
+
+Keep the docs in `docs/` in sync when contracts change (especially `VAULT_INTEGRATION.md` and
+`DATA_MODEL.md`) — that is where prose belongs.
+
+This rule arrived at M6. M0–M5 predate it and are not being retrofitted wholesale; trim a file when
+you are already editing it.
 
 ## 8. Dependencies
 - Add a dependency only when it earns its place; prefer Paper-bundled (Adventure/MiniMessage) over new

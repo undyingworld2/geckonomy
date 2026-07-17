@@ -11,8 +11,10 @@ import com.the1mason.geckonomy.domain.port.BalanceRepository
 import com.the1mason.geckonomy.domain.port.TransactionLog
 import com.the1mason.geckonomy.domain.port.TxContext
 import com.the1mason.geckonomy.domain.port.UnitOfWork
+import kotlinx.coroutines.delay
 import java.math.BigDecimal
 import java.sql.SQLException
+import kotlin.time.Duration
 
 /**
  * In-memory ports for the use-case tests (ARCHITECTURE.md §8: "application — use cases against
@@ -40,15 +42,21 @@ internal interface Snapshotting {
 }
 
 /**
- * Lets a test make the next call fail.
+ * Lets a test make the next call fail, or hang.
  *
  * `var failWith: Exception?` rather than a mock: the tests need "the database dies *now*", and one
  * assignable field says that more plainly than a stubbing DSL.
+ *
+ * [stall] is the other half of that: "the database stops answering", which is a different failure
+ * from an exception and the one M6's bounded main-thread reads exist to survive. It delays rather
+ * than sleeps, so a test still costs nothing to run.
  */
 internal abstract class Failable {
     var failWith: Exception? = null
+    var stall: Duration = Duration.ZERO
 
-    protected fun checkFailure() {
+    protected suspend fun checkFailure() {
+        if (stall > Duration.ZERO) delay(stall)
         failWith?.let { failWith = null; throw it }
     }
 }

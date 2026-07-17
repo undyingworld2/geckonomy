@@ -86,6 +86,22 @@ Pure model + ports, fully unit-tested.
 - **Done when:** a v2 Vault-aware plugin reads/writes balances in ≥2 currencies **and** a legacy-v1
   Vault plugin reads/writes the default currency; every interface method (both) implemented; no
   main-thread DB IO for online players.
+- **Done:** 591 tests green (+2 MariaDB suites needing Docker). Both services register at `Highest`;
+  `VaultRegistration` is the only class naming a Vault type at wiring time, so the soft dependency can
+  be absent without a `NoClassDefFoundError`. Review changed two rules the docs had stated
+  (`ARCHITECTURE.md §4` rewritten to match): sync reads **always** answer from the mirror, with an async
+  refresh only for `NETWORK` currencies on **MariaDB** — the shipped default (`coins: network`,
+  `storage: sqlite`) would otherwise have blocked the main thread on every third-party call — and sync
+  **writes await the use case** rather than deciding optimistically in the adapter, which would have
+  duplicated currency/amount/rounding/overdraft rules and could report SUCCESS for a write the database
+  refuses. v2's `default` methods are traps (`transfer` is a non-atomic withdraw-then-deposit, `set` is
+  read-then-adjust, `canWithdraw`/`canDeposit` return NOT_IMPLEMENTED); `VaultDefaultsTest` pins the
+  overrides by reflection, and the guard was verified to actually fail before being kept. Live smoke on
+  Paper 26.1.2 + VaultUnlocked 2.20.2 + ChestShop: 45/45, both services resolvable, ChestShop bound to
+  our v1 provider, atomic transfer correct and a failed transfer moving no money. It caught what the
+  tests could not — VaultUnlocked's *plugin name* is `Vault`, so the presence check found nothing and
+  registration never ran; the check now tests for the v2 API class instead. Measured on the main thread
+  (SQLite): mirrored read ~400 ns, un-mirrored fallback ~99 µs, awaited write ~1.4 ms median.
 
 ### M7 — Commands & UX  ·  `tasks/M7-commands.md`
 - `/balance`, `/pay`, `/baltop`, admin `/eco give|take|set|reset`, `/geckonomy reload|version`.

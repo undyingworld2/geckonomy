@@ -46,7 +46,9 @@ class Withdraw internal constructor(
                     Outcome.Failure(EconomyError.AccountNotFound(id))
                 } else {
                     val balance = ctx.balance.adjust(id, money.currency, money.amount.negate())
-                        ?: return@transaction Outcome.Failure(EconomyError.InsufficientFunds(id, money))
+                        ?: return@transaction Outcome.Failure(
+                            EconomyError.InsufficientFunds(id, money, ctx.accounts.findName(id)),
+                        )
                     ctx.log.append(
                         transactions.entry(
                             accountId = id,

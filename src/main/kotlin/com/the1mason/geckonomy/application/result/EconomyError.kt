@@ -30,8 +30,13 @@ sealed interface EconomyError {
      * Carries only what was *asked for*, not what is available: `lang/en.yml`'s `pay.insufficient`
      * renders the required amount alone, and reporting the balance would cost an extra read — the
      * very read that `BalanceRepository.adjust`'s atomic, typed `null` refusal exists to avoid.
+     *
+     * [name] is the account's display name, and the exception to that rule: `error.insufficient-funds`
+     * addresses a third party by name, and a UUID reaches a player through any Vault plugin that shows
+     * `errorMessage`. Null when the name could not be read — the message falls back to the UUID, which
+     * is ugly but true. Unlike the balance, this costs a read only on the failure path.
      */
-    data class InsufficientFunds(val id: AccountId, val required: Money) : EconomyError
+    data class InsufficientFunds(val id: AccountId, val required: Money, val name: String? = null) : EconomyError
 
     /**
      * [amount] is not a legal amount for the operation: zero or negative where a positive amount is

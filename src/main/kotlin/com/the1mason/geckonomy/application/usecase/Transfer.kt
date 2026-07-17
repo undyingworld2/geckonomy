@@ -61,7 +61,7 @@ class Transfer internal constructor(
                         if (!ctx.accounts.exists(to)) throw Abort(EconomyError.AccountNotFound(to))
 
                         val debited = ctx.balance.adjust(from, money.currency, money.amount.negate())
-                            ?: throw Abort(EconomyError.InsufficientFunds(from, money))
+                            ?: throw Abort(EconomyError.InsufficientFunds(from, money, ctx.accounts.findName(from)))
                         val credited = ctx.balance.adjust(to, money.currency, money.amount)
                             // Unreachable: a positive delta cannot fail a `>= 0` guard unless the
                             // balance was already negative, which cannot happen while the guard is on

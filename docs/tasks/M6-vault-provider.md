@@ -41,21 +41,64 @@ non-blocking sync path for online players. Both interfaces ship in the existing 
   Vault/VaultUnlocked dependency in `paper-plugin.yml`. Unregister both on disable.
 
 ## Sync-path rules
-- **Per-server (`SERVER`) currencies:** sync reads → mirror; sync writes → update mirror immediately +
-  dispatch authoritative async DB write via `EconomyService`.
-- **Network (`NETWORK`) currencies:** the mirror may be stale (another server can write the shared
-  balance), so sync reads **read through to the DB** (bounded) and writes persist authoritatively;
-  do not trust the mirror. (When Redis sync ships, mirror + invalidate instead.)
-- Offline UUID via sync API → bounded blocking DB call + warning log.
+
+Revised at review; these supersede the read-through rule this section originally carried. All of them
+live in `VaultSyncPath`, which both providers go through — one copy, or they drift.
+
+- **Reads always answer from the mirror.** For `NETWORK` currencies on **MariaDB** an async refresh runs
+  behind the read (deduped per account+currency) so it converges. On **SQLite no refresh fires**: the file
+  cannot be shared, so a network currency has exactly one writer and cannot go stale. The old rule would
+  have made the shipped default config (`coins: network`, `storage: sqlite`) block the main thread on
+  every third-party call, guarding against staleness that configuration cannot produce.
+- **Writes await the use case** (bounded `withTimeout`), then put the balance the DB actually returned
+  into the mirror. Not optimistic: deciding in the adapter would duplicate currency resolution,
+  `Amounts.positive`, the reloadable rounding mode and `OverdraftPolicy`, and could report SUCCESS for a
+  write the database refuses.
+- Un-mirrored account (offline, or not yet hydrated) → bounded blocking DB call + warning log. A timeout
+  → `StorageFailure`, never a fabricated zero.
 - The mirror is keyed by `(AccountId, CurrencyCode)`; scope resolution happens in the persistence layer,
   not the mirror.
+- Hydration happens on `AsyncPlayerPreLoginEvent`, not `PlayerJoinEvent`: already off the main thread,
+  and finished before the player is visible, so no plugin can hit the blocking fallback on join.
 
 ## Acceptance / tests
-- **v2** adapter unit-tested with a fake `EconomyService`: response mapping for success + each error;
-  shared-account methods return NOT_IMPLEMENTED; flags correct.
+- **v2** adapter unit-tested over `EconomyFixture` (a *real* `EconomyService` on in-memory ports, not a
+  fake service): response mapping for success + each error; shared-account methods return
+  NOT_IMPLEMENTED; flags correct.
 - **Legacy v1** adapter unit-tested: `OfflinePlayer` + name resolution; `double`↔`BigDecimal` round-trip;
-  bank methods return NOT_IMPLEMENTED; `hasBankSupport()=false`; name resolution never blocks on Mojang.
+  bank methods return NOT_IMPLEMENTED; `hasBankSupport()=false`; name resolution never blocks on Mojang
+  (asserted: `getOfflinePlayer(String)` is never called — `getOfflinePlayerIfCached` is).
+- **`VaultDefaultsTest`** — reflection over `declaringClass` asserting we override every dangerous v2
+  `default`. Without it a silent regression to the non-atomic default `transfer` loses FR-B5.
 - **Live smoke:** a v2 Vault plugin reads/writes ≥2 currencies (transfer → correct
-  `MultiEconomyResponse`); a **legacy v1** Vault plugin reads/writes the default currency.
+  `MultiEconomyResponse`); a **legacy v1** Vault plugin reads/writes the default currency; plugin still
+  enables cleanly with VaultUnlocked **absent**.
 - Both services resolvable via `ServicesManager.getRegistration(...)`.
-- No main-thread DB IO for online players (verify via timing/log).
+- No main-thread DB IO for online players (profile with `spark`; assert no JDBC frames on the main thread
+  while a Vault plugin transacts).
+
+## Status
+
+Done. 591 unit tests green (the 2 MariaDB suites need Docker, unavailable here), and the live smoke test
+passed 45/45 on Paper 26.1.2 with VaultUnlocked 2.20.2 + ChestShop.
+
+**The smoke test earned its keep — it caught a bug every unit test missed.** VaultUnlocked's *plugin
+name* is `Vault`, not `VaultUnlocked`: it is a drop-in replacement and keeps the original's name. The
+presence check and the `paper-plugin.yml` dependency both looked for `VaultUnlocked`, so registration was
+skipped entirely and ChestShop reported "No Vault compatible Economy plugin found!". M6 did not work at
+all on a real server while every test was green. The name alone cannot distinguish the two (the original
+is also `Vault`), so `onEnable` now checks for the v2 API class by string.
+
+Measured on the main thread, SQLite:
+| path | cost |
+|---|---|
+| read, mirrored | ~400 ns |
+| read, un-mirrored fallback | ~99 µs |
+| write, awaited | median 1.4 ms, p95 2.0 ms, max 3.8 ms |
+| pre-login hydrate | ~6 ms, off the main thread |
+
+So NFR-1 holds as approved: no JDBC on the main thread anywhere, mirrored reads are free, and a write
+parks the tick ~1.4 ms — the cost of the "await writes" decision. ~35 Vault writes in one tick would
+consume it.
+
+Not covered: MariaDB's async refresh path (no Docker here), and concurrent cross-server staleness.

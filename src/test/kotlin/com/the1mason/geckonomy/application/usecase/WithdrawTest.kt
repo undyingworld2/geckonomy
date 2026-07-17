@@ -84,7 +84,8 @@ class WithdrawTest {
         val result = withdrawWith(fixture)(ALICE, BigDecimal("50.00"), coins)
 
         assertEquals(
-            EconomyError.InsufficientFunds(ALICE, Money(BigDecimal("50.00"), TestCurrencies.COINS)),
+            // The name is carried so the message can address a player rather than a UUID.
+            EconomyError.InsufficientFunds(ALICE, Money(BigDecimal("50.00"), TestCurrencies.COINS), "Player"),
             (result as Outcome.Failure).error,
         )
         assertEquals(0, BigDecimal("49.99").compareTo(fixture.balances.get(ALICE, TestCurrencies.COINS)))

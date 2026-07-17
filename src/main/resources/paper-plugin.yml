@@ -10,3 +10,14 @@ load: STARTUP
 
 authors: [ the1mason ]
 website: the1mason.com
+
+# "Vault" is VaultUnlocked's plugin name - it is a drop-in replacement and keeps the original's name.
+# The name does not distinguish the two, so onEnable checks for the v2 API itself before registering.
+# required: false - Geckonomy runs fine without it; only third-party integration is lost, and enable
+# says so. load: BEFORE - the ServicesManager registration in onEnable needs its classes present.
+dependencies:
+  server:
+    Vault:
+      load: BEFORE
+      required: false
+      join-classpath: true

@@ -87,7 +87,8 @@ class TransferTest {
         val result = transferWith(fixture)(ALICE, BOB, BigDecimal("500.00"), coins)
 
         assertEquals(
-            EconomyError.InsufficientFunds(ALICE, Money(BigDecimal("500.00"), TestCurrencies.COINS)),
+            // The payer's name, not the payee's: the message says who was short.
+            EconomyError.InsufficientFunds(ALICE, Money(BigDecimal("500.00"), TestCurrencies.COINS), "Alice"),
             (result as Outcome.Failure).error,
         )
         assertEquals(0, BigDecimal("100.00").compareTo(fixture.coinsOf(ALICE)))

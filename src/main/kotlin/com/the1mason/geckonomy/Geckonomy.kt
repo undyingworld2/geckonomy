@@ -32,6 +32,7 @@ import com.the1mason.geckonomy.infrastructure.config.ConfigService
 import com.the1mason.geckonomy.infrastructure.config.GeckonomyConfig
 import com.the1mason.geckonomy.infrastructure.config.StartOutcome
 import com.the1mason.geckonomy.infrastructure.config.StorageType
+import com.the1mason.geckonomy.infrastructure.bukkit.listener.PlayerConnectionListener
 import com.the1mason.geckonomy.infrastructure.i18n.LanguageRepository
 import com.the1mason.geckonomy.infrastructure.i18n.MessageService
 import com.the1mason.geckonomy.infrastructure.persistence.ConnectionSource
@@ -46,6 +47,9 @@ import com.the1mason.geckonomy.infrastructure.persistence.SqlDialect
 import com.the1mason.geckonomy.infrastructure.persistence.SqlTransactionLog
 import com.the1mason.geckonomy.infrastructure.persistence.SqlUnitOfWork
 import com.the1mason.geckonomy.infrastructure.persistence.SqliteDialect
+import com.the1mason.geckonomy.infrastructure.vault.OnlineBalanceMirror
+import com.the1mason.geckonomy.infrastructure.vault.VaultRegistration
+import com.the1mason.geckonomy.infrastructure.vault.VaultSyncPath
 import com.zaxxer.hikari.HikariDataSource
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -59,88 +63,126 @@ import java.util.Locale
 import java.util.logging.Logger
 import kotlin.io.path.exists
 
-/**
- * Composition root — the only class that may know every layer (ARCHITECTURE.md §1).
- *
- * At M3 it wires config and persistence; the later milestones fill in the rest in the order
- * [onEnable] documents.
- */
+/** Composition root — the only class that may know every layer (ARCHITECTURE.md §1). */
 class Geckonomy : JavaPlugin() {
 
     /**
-     * The one scope every coroutine in the plugin runs under, cancelled in [onDisable] so nothing
-     * outlives the plugin classloader (CODING_STANDARDS.md §3).
+     * Cancelled in [onDisable] so nothing outlives the plugin classloader (CODING_STANDARDS.md §3).
+     * The [SupervisorJob] keeps one failed operation from tearing down unrelated ones.
      *
-     * A [SupervisorJob] keeps one failed operation from tearing down unrelated ones.
-     *
-     * **Not** the `IoDispatcher`, despite what this comment predicted at M0. Commands do more than
-     * query: they format messages and decide what to say, while the IO dispatcher is sized for the
-     * connection pool — a single thread on SQLite. Running command logic there would serialize the
-     * whole plugin behind one thread to no purpose. Database work reaches the IO threads because the
-     * repositories put it there themselves, not because their caller was dispatched correctly.
+     * **Not** the `IoDispatcher`: that is sized for the connection pool — a single thread on SQLite —
+     * and command logic does more than query, so running it there would serialize the whole plugin
+     * behind one thread to no purpose. Database work reaches the IO threads because the repositories
+     * put it there themselves, not because their caller was dispatched correctly.
      */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineName("geckonomy"))
 
-    /**
-     * Config and the currency registry, held for the milestones that build on them and for M7's
-     * `/geckonomy reload`. Null until a valid config is read — and if none ever is, the plugin
-     * disables rather than reaching this state.
-     */
     private var config: ConfigService? = null
 
-    /** The database side, held for the use cases built on it. Null until [openStorage] succeeds. */
     private var storage: Storage? = null
 
-    /**
-     * The economy itself — the one entry point every later milestone calls.
-     *
-     * Held so M6's Vault providers and M7's commands can take it. Null until storage opens, and if it
-     * never does, the plugin disables rather than reaching this state.
-     */
     private var economy: EconomyService? = null
 
     /**
-     * Player-facing text, held for M7's commands and any messaged path in M6.
-     *
      * Unlike [economy], this needs no storage and cannot fail: a language file that is missing or
      * broken degrades to the copy bundled in the jar (LOCALIZATION.md §1), because refusing to start
      * over a text file would be a worse trade than saying it in English.
      */
     private var messages: MessageService? = null
 
+    /** Online players' balances, so Vault's synchronous API never queries the database (ARCHITECTURE.md §4). */
+    private val mirror = OnlineBalanceMirror()
+
+    /**
+     * The two registered Vault services, or null when VaultUnlocked is not installed.
+     *
+     * Deliberately [AutoCloseable] rather than `VaultRegistration`: naming that type here would load
+     * it, and it names Vault classes that may not exist. See [registerVault].
+     */
+    private var vault: AutoCloseable? = null
+
+    /** Wiring order is ARCHITECTURE.md §7; each step needs the one above it. */
     override fun onEnable() {
-        // Wiring order — ARCHITECTURE.md §7. Each step arrives with its milestone:
-        // 1. M2 — load config; build CurrencyRegistry and StorageConfig.                    [done]
-        // 2. M3 — DataSourceFactory -> SqlDialect -> repositories + UnitOfWork; migrations. [done]
-        // 3. M4 — EconomyService from the use cases + ports.                                [done]
-        // 4. M5 — MessageService from the language files.                                   [done]
-        // 5. M6 — VaultUnlockedEconomyProvider (v2) and LegacyVaultEconomyProvider (v1) + the online
-        //         balance mirror; register both with the ServicesManager.
-        // 6. M7 — register commands and listeners.
         val config = loadConfig() ?: return
         this.config = config
         val storage = openStorage(config) ?: return
         this.storage = storage
-        economy = Economy(config, storage, Clock.systemUTC(), logger).service
-        messages = loadMessages(config)
-        logger.info("Geckonomy enabled (M5: economy and messages ready; no commands or Vault providers wired yet).")
+        val economy = Economy(config, storage, Clock.systemUTC(), logger)
+        this.economy = economy.service
+        val messages = loadMessages(config)
+        this.messages = messages
+
+        val sync = VaultSyncPath(economy.service, mirror, scope, config.current.storage.type, logger)
+        server.pluginManager.registerEvents(
+            PlayerConnectionListener(economy.service, sync, mirror, logger),
+            this,
+        )
+        // The check stays out here, on purpose. VaultUnlocked is a soft dependency, so its classes may
+        // not exist at runtime, and the JVM resolves a class the moment a method that names one runs.
+        // registerVault names several; nothing calls it unless Vault is actually present.
+        vault = if (vaultUnlockedInstalled()) {
+            registerVault(economy, messages, sync, config.currencies)
+        } else {
+            null // Not fatal: accounts, balances and commands all work. Only third-party integration is lost.
+        }
+        logger.info("Geckonomy enabled.")
     }
 
     /**
-     * Builds the message service and reads the language files.
+     * Whether VaultUnlocked — not the original Vault — is on the server, warning with the reason if not.
      *
+     * The name cannot answer this alone. VaultUnlocked ships as `name: Vault` because it is a drop-in
+     * replacement, and reusing the name is what keeps every plugin that softdepends on `Vault` working;
+     * the original is called `Vault` too. Only the original lacks the `vault2` package, so the class is
+     * the question actually worth asking. Asking it by string rather than by class literal matters: a
+     * literal would resolve the class, which is the very thing in doubt.
+     */
+    private fun vaultUnlockedInstalled(): Boolean {
+        if (server.pluginManager.getPlugin(VAULT) == null) {
+            logger.warning(
+                "VaultUnlocked is not installed - Geckonomy's economy will not be visible to other " +
+                    "plugins. Install VaultUnlocked to let shops and similar plugins use it.",
+            )
+            return false
+        }
+        return try {
+            Class.forName(V2_ECONOMY, false, javaClass.classLoader)
+            true
+        } catch (_: ClassNotFoundException) {
+            logger.warning(
+                "The installed Vault is the original, which has no v2 economy API - Geckonomy's " +
+                    "economy will not be visible to other plugins. Replace it with VaultUnlocked.",
+            )
+            false
+        }
+    }
+
+    private fun registerVault(
+        economy: Economy,
+        messages: MessageService,
+        sync: VaultSyncPath,
+        currencies: CurrencyRegistry,
+    ): AutoCloseable = VaultRegistration(
+        plugin = this,
+        economy = economy.service,
+        currencies = currencies,
+        sync = sync,
+        messages = messages,
+        format = economy.format,
+        rounding = economy.rounding,
+        scope = scope,
+        logger = logger,
+    ).apply { register() }
+        .also { logger.info("Registered with VaultUnlocked (v2 and legacy v1 economy services).") }
+
+    /**
      * `lang/en.yml` is written once and never overwritten, so an owner's edits survive an upgrade —
-     * which is exactly why `LanguageRepository` keeps the jar's copy as a last fallback: their file is
-     * frozen at the version that created it, and a later Geckonomy will have messages it has never
-     * heard of.
+     * which is why `LanguageRepository` keeps the jar's copy as a last fallback: their file is frozen
+     * at the version that created it, and a later Geckonomy will have messages it has never heard of.
      *
      * The existence check is not redundant with `saveResource`'s own `replace = false`: that overload
-     * logs a warning when the file is already there, so calling it unconditionally would put "Could
-     * not save en.yml because en.yml already exists" in the console on every start but the first —
-     * telling the owner off for the normal case.
-     *
-     * Blocking file IO on the main thread, like the migrations above and for the same reason: this is
-     * enable, and there is nothing else for it to be doing.
+     * logs a warning when the file is already there, so calling it unconditionally would tell the
+     * owner off for the normal case on every start but the first.
      */
     private fun loadMessages(config: ConfigService): MessageService {
         val directory = dataFolder.toPath().resolve("lang")
@@ -155,6 +197,11 @@ class Geckonomy : JavaPlugin() {
     override fun onDisable() {
         // Unwinds in reverse: unregister services, flush, close the pool and dispatcher. The economy
         // goes before the storage it reads through, so nothing can be handed a closed pool.
+        //
+        // Vault first of all: while it is registered, another plugin can still be handed our provider
+        // and call it, and everything below this line is what that call would land on.
+        vault?.close()
+        vault = null
         scope.cancel("Geckonomy is disabling")
         economy = null
         messages = null
@@ -165,8 +212,6 @@ class Geckonomy : JavaPlugin() {
     }
 
     /**
-     * Reads `config.yml`, or disables the plugin and returns null.
-     *
      * Refusing to start beats starting misconfigured (CONFIGURATION.md §3): an economy that comes up
      * with the wrong currencies or points at the wrong database does damage that a clear error at
      * boot does not.
@@ -198,9 +243,7 @@ class Geckonomy : JavaPlugin() {
     }
 
     /**
-     * Opens the pool, migrates the schema, and builds the repositories — or disables the plugin.
-     *
-     * The same refusal as a bad config, for the same reason: a plugin that enabled without storage
+     * The same refusal as [loadConfig], for the same reason: a plugin that enabled without storage
      * would answer every balance query with an error, and a player would read that as having lost
      * their money. A server that did not start is easier to explain, and to fix.
      */
@@ -230,8 +273,6 @@ class Geckonomy : JavaPlugin() {
     }
 
     /**
-     * Runs pending migrations on the IO threads, blocking until they finish.
-     *
      * Blocking is the point: nothing may touch the database until the schema is right, so there is
      * nothing useful for enable to do concurrently. Going through `runBlocking` on the IO dispatcher
      * rather than simply calling it keeps the "JDBC only on the IO threads" rule intact
@@ -250,11 +291,16 @@ class Geckonomy : JavaPlugin() {
 
     private fun disable() = server.pluginManager.disablePlugin(this)
 
+    private companion object {
+        /** VaultUnlocked's *plugin* name, which is not "VaultUnlocked". See [vaultUnlockedInstalled]. */
+        const val VAULT = "Vault"
+
+        /** The v2 API the original Vault does not have; named by string, never as a class literal. */
+        const val V2_ECONOMY = "net.milkbowl.vault2.economy.Economy"
+    }
+
     /**
-     * Everything M3 builds, kept together so [onDisable] can close it in one move and M4 can take the
-     * ports off it.
-     *
-     * The policies are captured here, at wiring, rather than read per call — which is what makes
+     * The policies here are captured at wiring rather than read per call — which is what makes
      * `settings.allow-overdraft` and `settings.server-id` restart-only, and why `ConfigService` warns
      * when a reload changes either (CONFIGURATION.md §4).
      */
@@ -270,13 +316,10 @@ class Geckonomy : JavaPlugin() {
         private val connections = ConnectionSource.Pooled(dataSource)
 
         /**
-         * Shared with M4's `SetBalance` rather than kept private, so one policy answers for
-         * `allow-overdraft` everywhere.
-         *
-         * `BalanceRepository.set` is unguarded and `SetBalance` applies the rule itself; a second
-         * instance built from the same config would work until someone changed how it is read, at
-         * which point the SQL guard and the admin path would disagree about whether a balance may go
-         * negative. One object cannot.
+         * Shared with `SetBalance` rather than kept private, so one policy answers for
+         * `allow-overdraft` everywhere. A second instance built from the same config would work until
+         * someone changed how it is read, at which point the SQL guard and the admin path would
+         * disagree about whether a balance may go negative. One object cannot.
          */
         val overdraft = OverdraftPolicy(config.settings.allowOverdraft)
 
@@ -293,8 +336,6 @@ class Geckonomy : JavaPlugin() {
     }
 
     /**
-     * M4's assembly: the use cases over M3's ports, and the facade over them.
-     *
      * A class rather than a method so the collaborators every use case shares — the guard, the amount
      * rules, the ledger-row factory — are built once and named, instead of being threaded through a
      * sixteen-argument constructor call by hand.
@@ -305,22 +346,19 @@ class Geckonomy : JavaPlugin() {
     private class Economy(service: ConfigService, storage: Storage, clock: Clock, logger: Logger) {
 
         /**
-         * Read per call, not captured.
-         *
-         * `settings.rounding-mode` and `settings.keep-transaction-history` are reloadable — unlike
-         * `allow-overdraft` and `server-id`, `ConfigService.restartWarnings` deliberately says nothing
-         * about them, which is a promise that `/geckonomy reload` changes them. Capturing either here
-         * would quietly break that promise: the reload would report success and change nothing.
+         * Read per call, not captured. `settings.rounding-mode` and `settings.keep-transaction-history`
+         * are reloadable — unlike `allow-overdraft` and `server-id`, `ConfigService.restartWarnings`
+         * deliberately says nothing about them, which is a promise that `/geckonomy reload` changes
+         * them. Capturing either here would quietly break that promise: the reload would report
+         * success and change nothing.
          */
-        private val rounding = { RoundingPolicy(service.current.settings.roundingMode) }
+        val rounding = { RoundingPolicy(service.current.settings.roundingMode) }
         private val keepHistory = { service.current.settings.keepTransactionHistory }
 
         /**
-         * Digit grouping for [FormatMoney], from the same setting that picks the language file.
-         *
          * `settings.language` names a file rather than a locale, but deriving one from it is what
          * keeps a German server's text and its numbers agreeing — `1.000,00 Coins`, not `1,000.00`.
-         * Read per call for the same reason as the two above: the setting is reloadable.
+         * Read per call for the same reason as [rounding].
          */
         private val locale = { Locale.forLanguageTag(service.current.settings.language) }
 
@@ -331,6 +369,9 @@ class Geckonomy : JavaPlugin() {
 
         /** Shared by [Has] and [CanWithdraw], which are both "read the balance, then judge it". */
         private val getBalance = GetBalance(storage.accounts, storage.balances, amounts, guard)
+
+        /** Exposed as well as injected: Vault's `ResponseMapper` renders `<formatted>` with the same one. */
+        val format = FormatMoney(locale)
 
         val service: EconomyService = EconomyService(
             createAccount = CreateAccount(storage.unitOfWork, currencies, rounding, clock, guard),
@@ -348,7 +389,7 @@ class Geckonomy : JavaPlugin() {
             renameAccount = RenameAccount(storage.accounts, guard),
             deleteAccount = DeleteAccount(storage.unitOfWork, keepHistory, guard),
             listCurrencies = ListCurrencies(currencies),
-            formatMoney = FormatMoney(locale),
+            formatMoney = format,
             currencies = currencies,
         )
     }

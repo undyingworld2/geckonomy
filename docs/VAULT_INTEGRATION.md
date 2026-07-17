@@ -42,16 +42,29 @@ Unregister both in `onDisable`. `softdepend` Vault/VaultUnlocked so the service 
 - `AccountPermission` enum: `DEPOSIT, WITHDRAW, BALANCE, TRANSFER_OWNERSHIP, INVITE_MEMBER,
   REMOVE_MEMBER, CHANGE_MEMBER_PERMISSION, OWNER, DELETE`.
 
-`ResponseMapper` builds these from `application.result` types:
+`ResponseMapper` builds these from `application.result` types. **`errorMessage` is localized**: each of
+the five `EconomyError` variants maps 1:1 onto an existing `error.*` message key, rendered through
+`MessageService` and serialized with `PlainTextComponentSerializer` (Vault wants a `String`, and a
+console or a third-party plugin's own formatting has nowhere to put a `Component`). The `<prefix>` is
+kept, so an operator reading a shop plugin's error still sees which plugin said it.
+
 | EconomyError | ResponseType | errorMessage source |
 |---|---|---|
 | (success) | SUCCESS | `""` |
-| InsufficientFunds | FAILURE | localized/plain reason |
-| UnknownCurrency | FAILURE | reason |
-| InvalidAmount | FAILURE | reason |
-| AccountNotFound | FAILURE | reason |
-| StorageFailure | FAILURE | reason |
+| InsufficientFunds | FAILURE | `error.insufficient-funds`, localized, names the account |
+| UnknownCurrency | FAILURE | `error.unknown-currency`, localized |
+| InvalidAmount | FAILURE | `error.invalid-amount`, localized |
+| AccountNotFound | FAILURE | `error.account-not-found`, localized |
+| StorageFailure | FAILURE | `error.storage-failure`, localized |
 | shared-account method | NOT_IMPLEMENTED | "Shared accounts not supported" |
+
+`LegacyResponseMapper` wraps the same instance for the v1 `double`-based `EconomyResponse`, so both
+providers say the same thing in the same language.
+
+`InsufficientFunds` carries the account's **name**, read by the use case on the failure path only, so the
+message says "Alice doesn't have $50.00" rather than a UUID — this string reaches players through any
+plugin that surfaces `errorMessage`. It falls back to the UUID when no name could be read.
+`AccountNotFound` keeps the UUID by necessity: there is no account row, so there is no name to read.
 
 ## 3. Capability flags
 
@@ -135,28 +148,46 @@ All of the following return `false` / empty list / `NOT_IMPLEMENTED` and log at 
 
 ## 6. AsyncEconomy
 
-`GeckonomyAsyncEconomy` mirrors the sync methods but returns futures/awaitable results and talks to the
+`GeckonomyAsyncEconomy` mirrors the sync methods but returns `CompletableFuture`s and talks to the
 `EconomyService` (DB) directly — **no mirror**, fully async. Integrators that check `supportsAsync()`
-get exact, un-cached values. (Confirm exact `AsyncEconomy` signatures against the pinned source at M6.)
+get exact, un-cached values. Futures are produced with `kotlinx.coroutines.future.future { }` on the
+plugin scope, so a disable cancels them rather than leaking past the classloader.
 
 ## 7. Sync path & the online mirror
 
-The sync `Economy` interface returns values immediately and is called on the main thread. To satisfy
-"never block the game thread":
+The sync `Economy` interface returns values immediately and is called on the main thread.
+`VaultSyncPath` is the only class holding these rules; both providers go through it.
 
-- `OnlineBalanceMirror` holds online players' balances, hydrated async on join, evicted on quit.
-- Sync **reads** hit the mirror. Sync **writes** update the mirror and dispatch the authoritative DB
-  write asynchronously (DB stays source of truth; not a batched write-behind).
-- Sync calls for **offline** UUIDs (rare) do a bounded blocking DB read/write with a timeout + warning.
+- `OnlineBalanceMirror` holds online players' balances, hydrated on `AsyncPlayerPreLoginEvent` (before
+  the player is visible to anyone else, so the mirror is warm before any plugin can ask), evicted on quit.
+- Sync **reads** answer from the mirror and **never read through**. An async refresh runs behind the read
+  only when `scope == NETWORK && storage == MARIADB`; on SQLite no refresh fires, because the file cannot
+  be shared, so there is exactly one writer and staleness is impossible.
+- Sync **writes await the use case** under a bounded timeout and then store the balance the database
+  actually returned. The adapter never decides the outcome itself — currency resolution, amount
+  validation, rounding and overdraft live in the use case, and duplicating them here is how the two
+  paths drift apart.
+- Calls for **un-mirrored** accounts (offline, or not yet hydrated) do a bounded blocking DB read with a
+  timeout. Measured ~99 µs on SQLite against ~400 ns for a mirror hit — fine occasionally, but a plugin
+  looping over offline players pays a whole tick every ~500 lookups.
+- **A failed read answers zero.** `getBalance` returns a bare `BigDecimal` and `has` a bare `boolean`, so
+  neither can report a failure, and nothing may be thrown at a Vault caller. Zero fails closed — `has`
+  says false, so a shop refuses the sale rather than handing over goods — and it is logged before it is
+  returned. Everything carrying an `Outcome` (`canDeposit`, `canWithdraw`, all writes) reports
+  `StorageFailure` honestly instead.
 
-See `ARCHITECTURE.md §4`.
+See `ARCHITECTURE.md §4` for why the read-through rule this section used to state was dropped.
 
 ## 8. Legacy v1 provider (`net.milkbowl.vault.economy.Economy`)
 
 Shipped from v1. Single-currency, `double` amounts, `String`/`OfflinePlayer` identifiers. Package + a
 separate legacy `EconomyResponse(double amount, double balance, ResponseType type, String errorMessage)`
 (same `SUCCESS/FAILURE/NOT_IMPLEMENTED` enum). `LegacyVaultEconomyProvider` delegates to the same
-`EconomyService` + `OnlineBalanceMirror` as v2.
+`EconomyService` and the same `VaultSyncPath` as v2, so both providers observe one set of mirror rules.
+
+**Do not extend `AbstractEconomy`.** It implements the `OfflinePlayer` overloads by delegating to the
+`String playerName` ones — the wrong direction, discarding the UUID we want and forcing a name lookup we
+already have the answer to. `LegacyVaultEconomyProvider` implements the interface directly.
 
 ### Conventions
 - **Currency:** always the **default currency** (legacy has no currency param). `fractionalDigits()`,

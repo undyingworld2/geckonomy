@@ -119,30 +119,53 @@ in `infrastructure` — domain/application never see a server id. See `DATA_MODE
 
 ### The synchronous Vault path
 The Vault `Economy` interface is synchronous (`BigDecimal getBalance(...)` returns immediately) and is
-called by third parties on the main thread. Reconciliation:
+called by third parties on the main thread. `infrastructure.vault.VaultSyncPath` is the only class that
+knows the reconciliation rules; both providers go through it.
 
 - `OnlineBalanceMirror` holds `ConcurrentHashMap<AccountId, ConcurrentHashMap<CurrencyCode, BigDecimal>>`.
-- `PlayerConnectionListener` hydrates a player's balances **async on join** and evicts on quit.
-- Synchronous `getBalance`/`has` read the mirror (no IO).
-- Synchronous `withdraw`/`deposit`/`set` update the mirror immediately (so subsequent reads are
-  consistent) **and** dispatch the authoritative DB write asynchronously through the use case.
-- For **offline** accounts not in the mirror (rare via the sync API), fall back to a bounded blocking
-  DB read with a timeout and a warning log.
+- `PlayerConnectionListener` hydrates a player's balances on **`AsyncPlayerPreLoginEvent`** — already off
+  the main thread, and done before the player exists to anyone else, so the mirror is warm before any
+  plugin can ask. Evicted on quit, and on a login refused after pre-login allowed it.
+- **Hydration claims the mirror slot before it reads.** An offline player can be paid at any time — the
+  write goes to storage regardless — and a payment landing *during* a login must not be lost. `put` only
+  writes to an account already mirrored, so without the claim it would no-op and the balances read before
+  the payment would be installed over the top of it; on SQLite, where no refresh fires, the mirror would
+  then stay wrong for the player's whole session. `completeHydration` fills only what is still absent,
+  and does nothing if the slot was evicted meanwhile (a quit mid-login) or a later hydration replaced it.
+- Synchronous `getBalance`/`has` **read the mirror and never read through** (no IO).
+- For accounts **not in the mirror** (offline, or not yet hydrated), fall back to a bounded blocking DB
+  read with a timeout. Measured at ~99 µs against SQLite versus ~400 ns for a mirror hit, so it is 250×
+  the cost and belongs on the rare path only.
+- **A failed read answers zero**, and that is not a detail. `getBalance` returns a bare `BigDecimal` and
+  `has` a bare `boolean` — neither has a failure channel, and nothing may be thrown at a Vault caller, so
+  a sick database has to become *some* number. Zero is chosen because it fails closed: `has` then says
+  false and a shop refuses the sale instead of giving goods away. It is always logged first (by
+  `StorageGuard` at WARNING, or by the timeout arm). The `Outcome`-returning paths — `canDeposit`,
+  `canWithdraw`, every write — propagate `StorageFailure` properly and fabricate nothing.
 - `supportsAsync()=true`; integrators that call `async()` get the fully-async `GeckonomyAsyncEconomy`
   which bypasses the mirror and awaits the DB directly.
 
-> This mirror is the single concession to "DB-only + never block." It is a read-through cache for
-> online players, not a write-behind buffer: the DB write is dispatched immediately, not batched.
+**Reads: mirror always; refresh only where staleness is possible.** A mirror hit is answered from the
+mirror. An async refresh is scheduled *behind* the read (deduplicated per account+currency) only when
+`scope == NETWORK && storage == MARIADB` — the one combination where another server can change a balance
+underneath us. On **SQLite no refresh ever fires**: a SQLite file cannot be shared between servers, so a
+network currency there has exactly one writer and cannot go stale.
 
-**Scope & the mirror (important).** The mirror is only trustworthy when this server is the sole writer
-of a balance:
-- **Per-server (`SERVER`) currencies** — mirrored normally (only this server writes them).
-- **Network (`NETWORK`) currencies** — another server sharing the DB can change the balance, so the
-  mirror would go stale. Until live propagation ships (future: Redis pub/sub invalidation), the
-  synchronous Vault path for network currencies **reads through to the DB** (bounded, off the async
-  path where possible) instead of trusting the mirror; writes still persist to the DB authoritatively.
-  Our own command/listener paths are already fully async against the DB, so they are always correct.
-  When Redis sync lands, network currencies can be mirrored too, invalidated on cross-server change.
+> The earlier rule here — network currencies read through to the DB — was rejected at M6 review. It
+> would have made the *shipped default config* (`coins: network`, `storage: sqlite`) do a blocking
+> main-thread DB read on every third-party call, to protect against a staleness that configuration
+> cannot produce. When Redis sync lands, MariaDB's refresh can become pub/sub invalidation.
+
+**Writes await the use case** under a bounded timeout, then put the authoritative returned balance into
+the mirror. The optimistic alternative — decide in the adapter, dispatch the DB write async — would have
+to re-implement four rules that exist exactly once already: currency resolution, `Amounts.positive`'s
+double sign-check (`0.004` is positive going in and `0.00` after rounding to a 2-digit currency), the
+reloadable `rounding-mode`, and `OverdraftPolicy.permits`. It would also report SUCCESS for a write the
+database later refuses. Reads are the overwhelming majority of Vault traffic and stay free, so NFR-1
+holds where it matters.
+
+> The mirror is the single concession to "DB-only + never block." It is a read cache, never a
+> write-behind buffer: only a value the database actually returned is ever put into it.
 
 ## 5. Key flows (sequences)
 
@@ -190,9 +213,21 @@ is the only thing a throw can express.
 ### Vault getBalance (third-party, main thread)
 ```
 Plugin → VaultUnlockedEconomyProvider.getBalance(plugin, uuid, world, currency)
-  → OnlineBalanceMirror.get(uuid, code)          // online → immediate
-  → (offline) bounded blocking BalanceRepository.get(...)  + warn
+  → VaultSyncPath.balance(id, currency)
+      → OnlineBalanceMirror.get(id, code)        // hit → immediate, no IO
+          → if (NETWORK && MARIADB) refresh behind the read, deduped   // never on SQLite
+      → (miss) bounded blocking EconomyService.balance(...) + warn
 → BigDecimal
+```
+
+### Vault deposit (third-party, main thread)
+```
+Plugin → VaultUnlockedEconomyProvider.deposit(plugin, uuid, world, currency, amount)
+  → VaultSyncPath.deposit(...)
+      → runBlocking(timeout) { EconomyService.deposit(...) }   // the use case decides, not the adapter
+      → mirror.put(id, code, result.balance)                   // authoritative value only
+  → ResponseMapper.response(...)                               // localized; no exception escapes
+→ EconomyResponse
 ```
 
 ## 6. Error handling
