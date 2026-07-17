@@ -3,11 +3,13 @@ package com.the1mason.geckonomy.infrastructure.config
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.domain.model.CurrencyCode
 import com.the1mason.geckonomy.domain.model.CurrencyScope
+import com.the1mason.geckonomy.infrastructure.placeholder.PlaceholderVariant
 import org.bukkit.configuration.InvalidConfigurationException
 import org.bukkit.configuration.file.YamlConfiguration
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.nio.file.Path
+import kotlin.time.Duration.Companion.seconds
 
 /** The value `settings.server-id` ships with; a server that never changed it (CONFIGURATION.md §2). */
 internal const val DEFAULT_SERVER_ID = "default"
@@ -83,9 +85,11 @@ class ConfigLoader {
         val settings = readSettings(root.child("settings"))
         val storage = readStorage(root.child("storage"))
         val currencies = readCurrencies(root, settings)
+        val placeholders = readPlaceholders(root.child("placeholders"))
         warnOnDefaultServerId(settings, currencies, problems)
+        warnOnPlaceholderShadowing(currencies, problems)
 
-        val config = GeckonomyConfig(storage, currencies, settings)
+        val config = GeckonomyConfig(storage, currencies, settings, placeholders)
         return if (problems.errors.isEmpty()) {
             ConfigLoad.Loaded(config, problems.warnings)
         } else {
@@ -100,6 +104,7 @@ class ConfigLoader {
         roundingMode = node.enum("rounding-mode", RoundingMode.HALF_UP, RoundingMode.entries.toTypedArray()) { it.name },
         keepTransactionHistory = node.bool("keep-transaction-history", true),
         baltopSize = node.int("baltop-size", 10, 1..1_000),
+        claimVaultEconomy = node.bool("claim-vault-economy", true),
     )
 
     /**
@@ -255,6 +260,32 @@ class ConfigLoader {
                 "settings.server-id",
                 "is still '$DEFAULT_SERVER_ID' while network currencies are configured; give each server " +
                     "sharing this database a unique id before starting a second one",
+            )
+        }
+    }
+
+    private fun readPlaceholders(node: ConfigNode): PlaceholderConfig = PlaceholderConfig(
+        // Floored at 5s, not 1: a tight loop here is one query per currency against the database
+        // forever, and nobody watching a leaderboard needs it fresher than that.
+        baltopRefresh = node.int("baltop-refresh-seconds", 60, 5..86_400).seconds,
+        offlineCacheTtl = node.int("offline-cache-seconds", 60, 5..86_400).seconds,
+        fallback = node.string("fallback", "0"),
+    )
+
+    /**
+     * A currency whose code is a placeholder keyword is shadowed — a warning, never an error.
+     *
+     * The currency works perfectly everywhere else, the shadowed placeholder is still reachable
+     * through its explicit spelling (`%geckonomy_balance_raw_formatted%`), and refusing to start a
+     * server over a placeholder spelling would be wildly out of proportion to the harm.
+     */
+    private fun warnOnPlaceholderShadowing(currencies: List<Currency>, problems: ConfigProblems) {
+        for (currency in currencies.filter { it.code.value in PlaceholderVariant.KEYWORDS }) {
+            problems.warn(
+                "currencies.${currency.code.value}.code",
+                "collides with the placeholder keyword '${currency.code.value}', so " +
+                    "%geckonomy_balance_${currency.code.value}% reads as the keyword rather than this " +
+                    "currency; reach it with %geckonomy_balance_raw_${currency.code.value}%",
             )
         }
     }

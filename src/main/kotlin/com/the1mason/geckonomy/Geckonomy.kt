@@ -33,6 +33,8 @@ import com.the1mason.geckonomy.infrastructure.config.ConfigService
 import com.the1mason.geckonomy.infrastructure.config.GeckonomyConfig
 import com.the1mason.geckonomy.infrastructure.config.StartOutcome
 import com.the1mason.geckonomy.infrastructure.config.StorageType
+import com.the1mason.geckonomy.infrastructure.balance.OfflineBalanceCache
+import com.the1mason.geckonomy.infrastructure.balance.OnlineBalanceMirror
 import com.the1mason.geckonomy.infrastructure.bukkit.BukkitMainThread
 import com.the1mason.geckonomy.infrastructure.bukkit.CurrencyAccess
 import com.the1mason.geckonomy.infrastructure.bukkit.PlayerTargets
@@ -60,7 +62,7 @@ import com.the1mason.geckonomy.infrastructure.persistence.SqlDialect
 import com.the1mason.geckonomy.infrastructure.persistence.SqlTransactionLog
 import com.the1mason.geckonomy.infrastructure.persistence.SqlUnitOfWork
 import com.the1mason.geckonomy.infrastructure.persistence.SqliteDialect
-import com.the1mason.geckonomy.infrastructure.vault.OnlineBalanceMirror
+import com.the1mason.geckonomy.infrastructure.placeholder.PlaceholderRegistration
 import com.the1mason.geckonomy.infrastructure.vault.VaultRegistration
 import com.the1mason.geckonomy.infrastructure.vault.VaultSyncPath
 import com.zaxxer.hikari.HikariDataSource
@@ -115,7 +117,10 @@ class Geckonomy : JavaPlugin() {
      */
     private var messages: MessageService? = null
 
-    /** Online players' balances, so Vault's synchronous API never queries the database (ARCHITECTURE.md §4). */
+    /**
+     * Online players' balances, so the synchronous callers — Vault and placeholders — never query the
+     * database (ARCHITECTURE.md §4).
+     */
     private val mirror = OnlineBalanceMirror()
 
     /**
@@ -125,6 +130,14 @@ class Geckonomy : JavaPlugin() {
      * it, and it names Vault classes that may not exist. See [registerVault].
      */
     private var vault: AutoCloseable? = null
+
+    /**
+     * The registered PlaceholderAPI expansion, or null when PlaceholderAPI is not installed.
+     *
+     * [AutoCloseable] for the same reason as [vault], and not for a weaker one: naming
+     * `PlaceholderRegistration` here would load it, and it names PAPI classes that may be absent.
+     */
+    private var placeholders: AutoCloseable? = null
 
     /** Held so [onDisable] can drop the per-currency nodes it registered. */
     private var permissions: GeckonomyPermissions? = null
@@ -149,13 +162,51 @@ class Geckonomy : JavaPlugin() {
         // not exist at runtime, and the JVM resolves a class the moment a method that names one runs.
         // registerVault names several; nothing calls it unless Vault is actually present.
         vault = if (vaultUnlockedInstalled()) {
-            registerVault(economy, messages, sync, config.currencies)
+            // Supplier, not a value: `settings.claim-vault-economy` is reloadable, so the takeover can
+            // be switched off live.
+            registerVault(economy, messages, sync, config.currencies) { config.current.settings.claimVaultEconomy }
         } else {
             null // Not fatal: accounts, balances and commands all work. Only third-party integration is lost.
+        }
+        // Same reasoning as the Vault check above, and the same shape. One step rather than two: PAPI
+        // does not squat another plugin's name, so the name answers the question by itself.
+        placeholders = if (server.pluginManager.getPlugin(PLACEHOLDER_API) != null) {
+            registerPlaceholders(config, economy)
+        } else {
+            logger.info("PlaceholderAPI is not installed - %geckonomy_...% placeholders are unavailable.")
+            null
         }
         registerCommands(config, economy, messages)
         logger.info("Geckonomy enabled.")
     }
+
+    /**
+     * Return type [AutoCloseable], never `PlaceholderRegistration` — naming the class in a signature
+     * loads it, which is the whole thing the caller's presence check is protecting against.
+     */
+    private fun registerPlaceholders(config: ConfigService, economy: Economy): AutoCloseable =
+        PlaceholderRegistration(
+            economy = economy.service,
+            currencies = config.currencies,
+            mirror = mirror,
+            offline = OfflineBalanceCache(
+                economy = economy.service,
+                scope = scope,
+                ttl = { config.current.placeholders.offlineCacheTtl },
+                logger = logger,
+            ),
+            format = economy.format,
+            // Suppliers, not values: every one of these is reloadable, and `restartWarnings` staying
+            // silent about them is the promise that `/geckonomy reload` applies them.
+            baltopSize = { config.current.settings.baltopSize },
+            baltopRefresh = { config.current.placeholders.baltopRefresh },
+            fallback = { config.current.placeholders.fallback },
+            scope = scope,
+            version = pluginMeta.version,
+            author = pluginMeta.authors.firstOrNull() ?: "the1mason",
+            logger = logger,
+        ).apply { register() }
+            .also { logger.info("Registered the PlaceholderAPI expansion (%geckonomy_...%).") }
 
     /**
      * Commands, and the permission nodes they check (ARCHITECTURE.md §7 step 6).
@@ -227,6 +278,7 @@ class Geckonomy : JavaPlugin() {
         messages: MessageService,
         sync: VaultSyncPath,
         currencies: CurrencyRegistry,
+        claimEconomy: () -> Boolean,
     ): AutoCloseable = VaultRegistration(
         plugin = this,
         economy = economy.service,
@@ -235,6 +287,7 @@ class Geckonomy : JavaPlugin() {
         messages = messages,
         format = economy.format,
         rounding = economy.rounding,
+        claimEconomy = claimEconomy,
         scope = scope,
         logger = logger,
     ).apply { register() }
@@ -267,6 +320,10 @@ class Geckonomy : JavaPlugin() {
         // and call it, and everything below this line is what that call would land on.
         vault?.close()
         vault = null
+        // Placeholders next, and for the same reason: PAPI will keep calling a registered expansion,
+        // and the snapshot it reads is cancelled with the scope below.
+        placeholders?.close()
+        placeholders = null
         // Commands themselves unregister with the plugin; these do not, and a stale node would
         // outlive a reload-on-disable cycle.
         permissions?.unregister()
@@ -371,6 +428,9 @@ class Geckonomy : JavaPlugin() {
 
         /** The v2 API the original Vault does not have; named by string, never as a class literal. */
         const val V2_ECONOMY = "net.milkbowl.vault2.economy.Economy"
+
+        /** Unambiguous, unlike [VAULT] — no other plugin ships under this name. */
+        const val PLACEHOLDER_API = "PlaceholderAPI"
     }
 
     /**

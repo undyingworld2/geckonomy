@@ -7,9 +7,9 @@ import com.the1mason.geckonomy.domain.TestCurrencies
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.domain.model.CurrencyCode
 import com.the1mason.geckonomy.domain.port.CurrencyRegistry
+import com.the1mason.geckonomy.infrastructure.balance.OnlineBalanceMirror
 import com.the1mason.geckonomy.infrastructure.config.StorageType
 import com.the1mason.geckonomy.infrastructure.i18n.LogCapture
-import com.the1mason.geckonomy.infrastructure.vault.OnlineBalanceMirror
 import com.the1mason.geckonomy.infrastructure.vault.VaultSyncPath
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

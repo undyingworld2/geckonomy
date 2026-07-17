@@ -40,6 +40,17 @@ can be absent without a `NoClassDefFoundError`; `Geckonomy` holds it as an `Auto
 register at `ServicePriority.Highest` and are unregistered on close. Both providers are built over one
 `VaultSyncPath`, which is what makes them observe one set of mirror rules (§7) rather than two copies.
 
+**Geckonomy claims sole ownership of the economy** (`settings.claim-vault-economy`, default true).
+`Highest` only wins against providers already present and only cleanly when nothing ties it — a plugin
+that enables *after* Geckonomy, or registers at `Highest` and got there first, is still in the
+`ServicesManager` and can be handed to a third party. `EssentialsX` is the concrete case: its economy
+does not defer to another and has no setting to make it. So `EconomyClaim` unregisters any *other*
+economy provider — at our registration (`sweep`) and, via a `ServiceRegisterEvent` listener at
+`MONITOR`, any that register later. It never removes Geckonomy's own providers, nor Vault's own bridges
+(plugin name `Vault`, which we already outrank). Every removal is logged, and the whole behavior is a
+reloadable supplier, so `/geckonomy reload` can switch it off live — turning it off stops future
+takeovers but does not restore a provider already removed (the other plugin would need to re-register).
+
 ## 2. Response types (from source)
 
 - `EconomyResponse(BigDecimal amount, BigDecimal balance, ResponseType type, String errorMessage)`;

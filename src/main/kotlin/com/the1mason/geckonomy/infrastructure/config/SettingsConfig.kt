@@ -14,6 +14,9 @@ import java.math.RoundingMode
  * @property roundingMode how amounts are rounded to a currency's fractional digits.
  * @property keepTransactionHistory whether the ledger survives account deletion.
  * @property baltopSize rows `/baltop` shows.
+ * @property claimVaultEconomy whether Geckonomy unregisters any other economy provider so it is the
+ *   sole one Vault answers with — including plugins (EssentialsX) whose own economy will not stand
+ *   down. Read per call: reloadable.
  */
 data class SettingsConfig(
     val serverId: String,
@@ -22,4 +25,5 @@ data class SettingsConfig(
     val roundingMode: RoundingMode,
     val keepTransactionHistory: Boolean,
     val baltopSize: Int,
+    val claimVaultEconomy: Boolean,
 )

@@ -63,6 +63,14 @@ settings:
   keep-transaction-history: true
   baltop-size: 10
 
+# ── Placeholders ────────────────────────────────────────────────────────
+# The PlaceholderAPI expansion (%geckonomy_...%). Only used when PlaceholderAPI is
+# installed; without it Geckonomy runs normally and says so at startup.
+placeholders:
+  baltop-refresh-seconds: 60   # how often the leaderboard snapshot is rebuilt (min 5)
+  offline-cache-seconds: 60    # how long an offline player's balance is reused before a re-read
+  fallback: "0"                # shown while a value is not known yet
+
 # ── Cross-server sync (RESERVED — not active in v1) ──────────────────────
 # Live propagation of `network` currencies between servers. Until this ships, a
 # network currency on a shared MariaDB is refreshed just after it is read, so a
@@ -110,7 +118,28 @@ settings:
 | `allow-overdraft` | bool | `false` | Permit negative balances. |
 | `rounding-mode` | enum | `HALF_UP` | `java.math.RoundingMode` name. |
 | `keep-transaction-history` | bool | `true` | Retain ledger on account delete. |
-| `baltop-size` | int | 10 | `/baltop` row count. |
+| `baltop-size` | int | 10 | `/baltop` row count. Also bounds `%geckonomy_baltop_*%`. |
+| `claim-vault-economy` | bool | `true` | Make Geckonomy the **only** economy Vault answers with. When true, it unregisters any other Vault economy provider — at startup and if one registers later — so shops and similar plugins can never bind to the wrong one. This is the switch for **EssentialsX**, whose economy does not stand down on its own and has no setting to make it. Set `false` only if you deliberately run another economy plugin alongside Geckonomy. Reloadable. |
+
+### `placeholders`
+Only used when PlaceholderAPI is installed. See `SPEC.md §4.7` for the full table.
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `baltop-refresh-seconds` | int 5–86400 | 60 | How often the leaderboard snapshot rebuilds. Placeholders never query the database, so the leaderboard is at most this far behind. Floored at 5: a `0` would spin the IO pool against the database forever. |
+| `offline-cache-seconds` | int 5–86400 | 60 | How long an **offline** player's balance is reused before it is re-read behind the next render. Online players read from the mirror and ignore this. An `/eco give` to an offline player can take this long to show in a placeholder. |
+| `fallback` | string | `"0"` | Rendered when the placeholder is understood but the value is not known **yet**: the first render for an offline player (the real balance follows a tick or two later), or a rank nobody holds. An unrecognized placeholder renders as itself instead, never as this. |
+
+**`%geckonomy_baltop_rank%` is bounded by `baltop-size`.** It is answered from the leaderboard
+snapshot, so a player outside the top N has *no rank* and renders `fallback`. This is not a bug: a
+true rank is a `COUNT(*) WHERE balance > ?` per player per tick, which is exactly the database IO
+placeholders exist not to do.
+
+**A currency code that collides with a placeholder keyword is shadowed**, and startup warns about it.
+With a currency coded `formatted`, `%geckonomy_balance_formatted%` means "the formatted balance of
+the default currency" — the longer keyword wins. The currency is still reachable through the explicit
+spelling, `%geckonomy_balance_raw_formatted%`, so nothing is unreachable and the warning is a warning
+rather than a refusal to start.
 
 **Per-currency permissions** (see `SPEC.md §7`): beyond the flags above, each currency has permission
 nodes `geckonomy.balance.<code>`, `geckonomy.balance.others.<code>`, `geckonomy.pay.<code>`,
@@ -139,6 +168,10 @@ child — which is what makes granting `geckonomy.pay.*` work on a server with n
 - `settings.server-id` non-empty (warn if left at `default` while any `network` currency exists on a
   shared DB, since collisions across servers must be avoided).
 - `rounding-mode` is a valid `RoundingMode`; `baltop-size ≥ 1`.
+- `placeholders.baltop-refresh-seconds` and `placeholders.offline-cache-seconds` ∈ 5–86400. The floor
+  is the point: `0` would rebuild the snapshot in a tight loop against the database forever.
+- A currency `code` that collides with a placeholder keyword **warns**, and does not fail: it is
+  shadowed in one spelling and reachable in another (§2), which is not worth refusing to start over.
 - **Every** problem is reported at once, not just the first, so one round of edits can fix them all.
 - On validation failure: log a clear error and **disable the plugin** rather than run misconfigured.
 
@@ -155,6 +188,11 @@ resolved at startup (DATA_MODEL.md §7) — and a change is warned about, since 
 under the old id are not visible under the new one. **`settings.allow-overdraft`** likewise needs a
 restart and is warned about: the rule is compiled into the balance repository's SQL guard at startup,
 because the check has to be atomic with the update it guards (DATA_MODEL.md §4).
+
+The whole **`placeholders`** block applies live, and nothing warns about it — that silence is the
+promise. Each key is read through a supplier on every use rather than captured at wiring time, so a
+reload genuinely changes the next render. A new `baltop-refresh-seconds` takes effect after the
+in-flight sleep ends, not mid-sleep.
 
 ## 5. Parsing library (decided at M2)
 

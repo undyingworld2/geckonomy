@@ -7,6 +7,7 @@ import com.the1mason.geckonomy.application.EconomyFixture.Companion.BOB
 import com.the1mason.geckonomy.application.result.EconomyError
 import com.the1mason.geckonomy.application.result.Outcome
 import com.the1mason.geckonomy.domain.TestCurrencies
+import com.the1mason.geckonomy.infrastructure.balance.OnlineBalanceMirror
 import com.the1mason.geckonomy.infrastructure.config.StorageType
 import com.the1mason.geckonomy.infrastructure.i18n.LogCapture
 import kotlinx.coroutines.CoroutineScope

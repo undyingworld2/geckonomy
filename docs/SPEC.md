@@ -29,8 +29,9 @@ Geckonomy without knowing its storage or internals.
 - Importers.
 
 **Planned, post-v1**
-- **PlaceholderAPI expansion** — specified in §4.7, built at **M9**. Read-only and mirror-backed: it
-  exposes what the economy already knows, and adds no way to change a balance.
+- **PlaceholderAPI expansion** — specified in §4.7, built at **M9**. Read-only: it exposes what the
+  economy already knows, and adds no way to change a balance. Never queries the database on the
+  calling thread (FR-P7).
 
 ## 2. Glossary
 
@@ -133,12 +134,26 @@ economy already knows and adds no way to change a balance. Full placeholder tabl
   command uses — one formatter, so a placeholder and `/balance` can never disagree.
 - FR-P6 Expose the leaderboard per currency: name and balance at a given rank, and the requesting
   player's own rank.
-- FR-P7 **Placeholders never perform database IO.** Balances are served from the online-player mirror
-  and the leaderboard from a periodically-refreshed snapshot. Anything unknown renders a configurable
-  fallback string. This is stricter than the Vault sync path, which may do a bounded blocking read for
-  an un-mirrored account (§5 NFR-1, `ARCHITECTURE.md §4`), and the difference is deliberate: Vault is
-  asked once per shop sale, whereas a placeholder is re-rendered **every tick, for every viewer, for
-  offline players too**. The fallback that is a rare path for Vault would be the common one here.
+- FR-P7 **Placeholders never perform database IO on the calling thread.** This is stricter than the
+  Vault sync path, which may do a bounded blocking read for an un-mirrored account (§5 NFR-1,
+  `ARCHITECTURE.md §4`), and the difference is deliberate: Vault is asked once per shop sale, whereas
+  a placeholder is re-rendered **every tick, for every viewer, for offline players too**. The bounded
+  read that is a rare path for Vault would be the common one here — a tab list of 100 offline players
+  would spend a tick every ~500 lookups.
+  - An **online** player's balance comes from the mirror.
+  - An **offline** player's comes from `OfflineBalanceCache`, which answers from memory and schedules
+    the read *behind* the render. PAPI re-renders every tick, so the real balance appears a tick or
+    two later; the main thread never touches JDBC. Bounded by a TTL (`placeholders.offline-cache-seconds`)
+    and swept of entries nobody asks for, so a tab list cannot grow it without limit.
+  - The **leaderboard** comes from a snapshot rebuilt on a timer.
+  - The configured fallback covers only what is *not yet* known: the first render before a fill lands,
+    and a rank nobody holds.
+
+  _(M9 amended this. The milestone spec originally said balances come "from the mirror or not at
+  all", which made an offline player's balance permanently unknowable and rendered `0` for anyone
+  logged out — a lie a scoreboard would show for hours, as that same doc argued against elsewhere.
+  Filling asynchronously keeps the rule that matters — zero main-thread DB IO — and drops only the
+  claim that the mirror is the sole source.)_
 - FR-P8 An unrecognized placeholder returns `null`, so PlaceholderAPI leaves the text as it found it.
   Never an exception into PAPI's render loop, and never a fabricated value that a player would read as
   a real balance.
@@ -179,7 +194,7 @@ economy already knows and adds no way to change a balance. Full placeholder tabl
 | Cross-server live sync | ❌ | Network-scoped balances share a DB, but live propagation (Redis) is future; interim refresh-behind-the-read (see `ARCHITECTURE.md §4`) |
 | Legacy Vault (v1) `Economy` provider | ✅ v1 | Register the *original* `net.milkbowl.vault.economy.Economy` (bundled in VaultUnlockedAPI) alongside v2, for the many plugins still bound to it. Single-currency → default currency. |
 | Legacy Vault (v1) bank methods | ❌ | `hasBankSupport()=false`; bank methods return `NOT_IMPLEMENTED` (banks deferred; distinct from VaultUnlocked shared accounts) |
-| PlaceholderAPI expansion | ⏳ M9 | Identifier `geckonomy`; soft dependency; read-only; mirror-backed, never touches the database (§4.7) |
+| PlaceholderAPI expansion | ✅ v1 | Identifier `geckonomy`; soft dependency; read-only; never queries the database on the calling thread (§4.7) |
 
 ## 7. Commands & permissions
 

@@ -1,8 +1,11 @@
 # infrastructure.vault
 
 `VaultUnlockedEconomyProvider` (v2), `LegacyVaultEconomyProvider` (v1), `GeckonomyAsyncEconomy`,
-`ResponseMapper`, `LegacyResponseMapper`, `OnlineBalanceMirror`, `VaultSyncPath`, `PlayerResolver`,
-`VaultRegistration`.
+`ResponseMapper`, `LegacyResponseMapper`, `VaultSyncPath`, `PlayerResolver`, `VaultRegistration`,
+`EconomyClaim`.
+
+`OnlineBalanceMirror` lives in `infrastructure.balance` — M9's placeholder adapter reads it too, so
+it belongs to neither adapter.
 
 Both providers register with the `ServicesManager` at `Highest`: v2 multi-currency, and legacy v1
 mapped onto the default currency (`double` ↔ `BigDecimal`, banks NOT_IMPLEMENTED).

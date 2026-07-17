@@ -1,0 +1,59 @@
+# Geckonomy — русский язык (Russian). См. docs/LOCALIZATION.md.
+#
+# Скопируйте этот файл в <code>.yml, переведите значения и укажите settings.language = <code>. Сохраняйте
+# ключи и <плейсхолдеры> без изменений — текст вокруг них ваш, а теги нет.
+#
+# Значения используют MiniMessage: <green>...</green>, <bold>, <#ff8800> и т.д. Плейсхолдеры подставляются
+# для каждого сообщения; какие из них доступны сообщению, задаётся кодом, который его отправляет
+# (LOCALIZATION.md §3), поэтому придуманный в этом файле тег отобразится как обычный текст, а не вызовет ошибку.
+#
+# <prefix> добавляется в каждое сообщение, поэтому любая строка может начинаться с него.
+#
+# Введённый игроком текст (<target>, <sender>, <name>) вставляется *без обработки*: игрок с ником
+# <red>bob</red> отобразится этими буквальными символами, а не как разметка. Это свойство безопасности,
+# а не особенность форматирования — не «исправляйте» это.
+#
+# Этот файл также поставляется внутри jar как резервный вариант на крайний случай. Ключ, отсутствующий в
+# вашем активном языке, берётся из вашего en.yml, затем из встроенной копии, поэтому обновление Geckonomy,
+# добавляющее сообщение, никогда не оставит на экране сырой ключ.
+
+prefix: "<gray>[<aqua>Geckonomy</aqua>]</gray> "
+
+balance:
+  self: "<prefix><green>Баланс:</green> <white><formatted></white>"
+  other: "<prefix>Баланс игрока <white><target></white>: <white><formatted></white>"
+
+pay:
+  sent: "<prefix><green>Отправлено <white><formatted></white> игроку <white><target></white>.</green>"
+  received: "<prefix><green>Получено <white><formatted></white> от <white><sender></white>.</green>"
+  insufficient: "<prefix><red>У вас нет <white><formatted></white>.</red>"
+  self: "<prefix><red>Нельзя платить самому себе.</red>"
+
+baltop:
+  header: "<prefix><gold>Топ балансов (<currency>)</gold>"
+  entry: "<gray><rank>.</gray> <white><name></white> — <formatted>"
+  empty: "<prefix><gray>Пока ни у кого нет <currency>.</gray>"
+
+admin:
+  given: "<prefix><green>Выдано <white><formatted></white> игроку <white><target></white>.</green>"
+  taken: "<prefix><green>Изъято <white><formatted></white> у игрока <white><target></white>.</green>"
+  set: "<prefix><green>Баланс игрока <white><target></white> установлен на <white><formatted></white>.</green>"
+  reset: "<prefix><green>Баланс игрока <white><target></white> сброшен на <white><formatted></white>.</green>"
+  reloaded: "<prefix><green>Конфигурация перезагружена.</green>"
+  reload-failed: "<prefix><red>Перезагрузка не удалась — продолжает работать предыдущая конфигурация. Смотрите консоль, чтобы понять, что исправить.</red>"
+  version: "<prefix><gray>Geckonomy <white><version></white></gray>"
+
+error:
+  unknown-currency: "<prefix><red>Неизвестная валюта: <white><currency></white>.</red>"
+  account-not-found: "<prefix><red>Нет счёта у <white><target></white>.</red>"
+  insufficient-funds: "<prefix><red>У игрока <white><target></white> нет <white><formatted></white>.</red>"
+  invalid-amount: "<prefix><red>Неверная сумма.</red>"
+  # Намеренно расплывчато: причина в консоли, и игрок ничего с ней сделать не может.
+  storage: "<prefix><red>Что-то пошло не так. Попробуйте ещё раз и сообщите администратору, если повторится.</red>"
+  no-permission: "<prefix><red>У вас нет прав на это действие.</red>"
+  no-currency-permission: "<prefix><red>Вы не можете использовать <white><currency></white> здесь.</red>"
+  not-transferable: "<prefix><red><white><currency></white> нельзя передавать другим игрокам.</red>"
+  others-hidden: "<prefix><red>Вы не можете просматривать баланс <white><currency></white> других игроков.</red>"
+  player-not-found: "<prefix><red>Нет игрока с ником <white><target></white>.</red>"
+  players-only: "<prefix><red>Эту команду может выполнить только игрок. Укажите игрока: <white><usage></white></red>"
+  usage: "<prefix><red>Использование: <white><usage></white></red>"

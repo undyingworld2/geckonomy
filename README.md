@@ -17,6 +17,7 @@ without knowing anything about it.
 | Server | Paper 26.1.2+ (`paper-plugin.yml`, Brigadier — Spigot is not supported) |
 | Java | 25+ |
 | VaultUnlocked | Optional, but needed for any other plugin to see your economy |
+| PlaceholderAPI | Optional; enables the `geckonomy` placeholders (see below) |
 
 > **VaultUnlocked, not the original Vault.** VaultUnlocked installs under the plugin name `Vault` and is
 > a drop-in replacement for it — that is expected. The original Vault has no v2 API; Geckonomy will
@@ -118,6 +119,34 @@ not.
 survive updates. To translate: copy it to `de.yml`, translate the values (keep the keys and the
 `<placeholders>`), set `settings.language: de`, and reload. A missing key falls back to English rather
 than showing you a raw key. See [docs/LOCALIZATION.md](docs/LOCALIZATION.md).
+
+## Placeholders
+
+With [PlaceholderAPI](https://www.spigotmc.org/resources/placeholderapi.6245/) installed, Geckonomy
+registers a `geckonomy` expansion for scoreboards, tab lists, holograms and chat. It is read-only —
+nothing here can change a balance — and it never queries the database on the tick thread, so it is
+safe to render every tick for every player. Without PlaceholderAPI, Geckonomy runs normally and says
+so in the log.
+
+A `[_<currency>]` suffix is optional on every placeholder; leave it off for the default currency.
+
+| Placeholder | Shows |
+|---|---|
+| `%geckonomy_balance%` | the player's balance, plain (`1234.5`) |
+| `%geckonomy_balance_formatted%` | formatted per the currency template (`$1,234.50`) |
+| `%geckonomy_balance_commas%` / `_fixed%` | grouped digits / whole units only |
+| `%geckonomy_balance_name%` | the currency name agreeing with the balance (`Coin` vs `Coins`) |
+| `%geckonomy_symbol%` · `_name%` · `_name_plural%` · `_digits%` | currency metadata |
+| `%geckonomy_format_<amount>%` | any amount through the same formatter (`%geckonomy_format_1000%` → `$1,000.00`) |
+| `%geckonomy_baltop_player_<n>%` · `_baltop_balance_<n>%` | the name / balance at rank `<n>` |
+| `%geckonomy_baltop_rank%` | the player's own rank (empty beyond `baltop-size`) |
+
+Tuning lives under `placeholders:` in `config.yml` (refresh interval, offline-balance cache, the
+fallback string) — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md). Two things worth knowing: an
+**offline** player's balance appears a moment after the first lookup (it is fetched in the
+background, never on the tick), and `%geckonomy_baltop_rank%` only knows the top `baltop-size`
+players — a true rank for everyone would mean a database query per player per tick, which is what
+this expansion is built to avoid.
 
 ## For developers
 

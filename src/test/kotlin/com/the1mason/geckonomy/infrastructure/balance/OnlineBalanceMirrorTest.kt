@@ -1,4 +1,4 @@
-package com.the1mason.geckonomy.infrastructure.vault
+package com.the1mason.geckonomy.infrastructure.balance
 
 import com.the1mason.geckonomy.application.EconomyFixture.Companion.ALICE
 import com.the1mason.geckonomy.application.EconomyFixture.Companion.BOB

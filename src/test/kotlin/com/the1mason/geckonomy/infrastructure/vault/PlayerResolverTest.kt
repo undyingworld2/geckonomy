@@ -4,6 +4,7 @@ import com.the1mason.geckonomy.application.EconomyFixture
 import com.the1mason.geckonomy.application.EconomyFixture.Companion.ALICE
 import com.the1mason.geckonomy.application.EconomyFixture.Companion.BOB
 import com.the1mason.geckonomy.application.EconomyFixture.Companion.CAROL
+import com.the1mason.geckonomy.infrastructure.balance.OnlineBalanceMirror
 import com.the1mason.geckonomy.infrastructure.config.StorageType
 import com.the1mason.geckonomy.infrastructure.i18n.LogCapture
 import kotlinx.coroutines.CoroutineScope

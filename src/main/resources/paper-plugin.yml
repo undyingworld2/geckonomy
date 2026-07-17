@@ -21,6 +21,12 @@ dependencies:
       load: BEFORE
       required: false
       join-classpath: true
+    # Unlike Vault, the name is unambiguous - PlaceholderAPI has no twin squatting it, so the
+    # composition root's presence check needs no second Class.forName step.
+    PlaceholderAPI:
+      load: BEFORE
+      required: false
+      join-classpath: true
 
 # Base nodes only. The per-currency nodes (geckonomy.pay.coins, ...) are named after config, so they
 # are registered at enable and on reload by GeckonomyPermissions - see that class for why an

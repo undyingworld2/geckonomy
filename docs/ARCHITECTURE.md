@@ -175,6 +175,23 @@ holds where it matters.
 > The mirror is the single concession to "DB-only + never block." It is a read cache, never a
 > write-behind buffer: only a value the database actually returned is ever put into it.
 
+### The placeholder path
+PlaceholderAPI's `onRequest` is synchronous and main-thread like Vault's, but the traffic is not
+comparable: a scoreboard re-renders **every tick, for every viewer**, and a tab list asks about
+**offline** players. Vault is asked once per shop sale. So the bounded blocking read that is a
+defensible rare path above would become the common one, and `infrastructure.placeholder` does **no**
+database IO at all (SPEC.md FR-P7) — it is stricter than the Vault path, deliberately.
+
+- Online balances: `OnlineBalanceMirror`, the same instance Vault reads.
+- Offline balances: `OfflineBalanceCache` — answers from memory, schedules the read *behind* the
+  render on the plugin scope, and the next tick shows the truth. TTL'd and swept, so a tab list
+  cannot grow it without bound. This is what lets an offline player's balance be shown at all
+  without blocking; the alternative was rendering `0` forever for anyone logged out.
+- Leaderboard: `BaltopSnapshot`, rebuilt on a timer, read as a volatile field.
+
+Both live in `infrastructure.balance` rather than under either adapter, because both adapters read
+the mirror and a package named for one of them would misdescribe it.
+
 **Observability (NFR-8).** Two things say out loud what is otherwise invisible, and both are throttled
 because a third party controls how often they happen — a plugin looping over offline players would turn
 a useful hint into the reason nobody reads the console:

@@ -193,7 +193,7 @@ Pure model + ports, fully unit-tested.
   contributor without Docker gets the other 700 rather than a hard failure — the release build runs
   where Docker does, and "0 skipped" is the thing to check.
 
-### M9 — PlaceholderAPI expansion  ·  `tasks/M9-placeholders.md`
+### M9 — PlaceholderAPI expansion  ·  `tasks/M9-placeholders.md`  ✅
 A read-only `geckonomy` expansion: currency symbol/name/digits, the player's balance per currency
 (raw, formatted, comma-grouped, fixed), an arbitrary amount through `FormatMoney`, and the
 leaderboard (name/balance at rank, own rank).
@@ -206,6 +206,61 @@ leaderboard (name/balance at rank, own rank).
   scoreboard plugin; the expansion survives `/papi reload`; the plugin still enables cleanly with
   PlaceholderAPI **absent**; and `spark` shows **no JDBC frames on the main thread** while a
   scoreboard renders leaderboard placeholders for online and offline players alike.
+- **Done:** 770 tests green (717 at M8), 0 skipped. Review overturned the task spec twice, and the
+  spec had argued both sides of the first one itself.
+
+  **Offline balances resolve rather than rendering `0` forever.** The spec said balances come "from
+  the mirror or not at all", which makes an offline player's balance permanently unknowable — the
+  exact lie ("a scoreboard will show it for hours") the same page argued against two paragraphs
+  earlier. `OfflineBalanceCache` answers from memory and fills **behind** the render, so PAPI's next
+  tick shows the truth and the main thread still never touches JDBC. `FR-P7`'s intent survives
+  unchanged; only its wording moved, and `SPEC.md §4.7` was rewritten rather than left to rot — M8's
+  lesson about a rejected rule surviving in six places. The cost is a TTL, an in-flight dedupe and a
+  sweep, without which a tab list is a memory leak.
+
+  **The spike came out opposite to M7's, which is why it was worth running either way.**
+  `PlaceholderExpansion`'s constructor only calls `Object.<init>` and sets a field — no static
+  initializer, no PAPI singleton — so it builds under plain JUnit *and* MockBukkit with no PAPI
+  present. `GeckonomyExpansion` is therefore tested, `persist()` included; only `register()` is not.
+  The spike also found the trap it was not looking for: `PlaceholderHook.onRequest` passes **`null`**
+  to `onPlaceholderRequest` for an offline player, discarding who was asked about — overriding that
+  method instead of `onRequest` would have made most of a tab list unanswerable, and every offline
+  test would have been written against the wrong hook.
+
+  **A stale `target/` was inflating the count.** Deleting the spike's source did not delete its
+  class, and moving `OnlineBalanceMirrorTest` to `infrastructure.balance` left the `vault` copy
+  behind — both kept running, and 717 read as 728 before a line of M9 test code existed. A deleted
+  test that still passes is worse than a failing one. The number above is from `mvn clean test`.
+
+  `StorageGuard` catches `Exception` wholesale, so **no use-case call can throw** and the obvious way
+  to test `BaltopSnapshot`'s guard does not reach it. The reachable throw is the unguarded edge —
+  `size()` and `amounts.currency()`, which `ListTopBalances` leaves outside `guarding` — and M8 had
+  already found the same edge from the other side in `CommandFailureTest`. The guard was verified to
+  fail before being kept: without it the loop dies silently and the snapshot freezes forever.
+
+  Two smaller decisions the spec left contradictory. A rank that **cannot exist**
+  (`baltop_player_abc`, `_0`) renders `null`; a well-formed rank the snapshot does not hold — every
+  rank in the first minute after boot — renders the fallback, because the alternative prints raw
+  `%geckonomy_baltop_player_1%` across every scoreboard on every restart. And `OnlineBalanceMirror`
+  moved to `infrastructure/balance`: two adapters read it, so a package named for one of them lied.
+
+  **Live smoke on Paper 26.1.2 + PlaceholderAPI 2.12.3 + VaultUnlocked 2.20.2 + ChestShop.** The
+  expansion registers (`Successfully registered internal expansion: geckonomy`), `papi list` shows
+  it, and it **survives `/papi reload`** — the `persist()` check the task doc singled out as "the one
+  that will be wrong", and it is right. `/papi parse --null` returned correct values for everything
+  that needs no player: `format_1234.5` → `$1,234.50`, `format_5_gems` → `5 Gems`, the metadata for
+  both currencies, and — `FR-P8` on a real server — an unknown variant *and* an unknown currency each
+  came back as the **literal** `%geckonomy_…%`, left untouched rather than faked. With the
+  PlaceholderAPI jar removed, the plugin enables cleanly and logs that placeholders are unavailable;
+  no exception either way.
+
+  What headless console cannot reach: `/papi parse <name>` requires an **online** player, so the
+  balance, offline-fill and `baltop` placeholders, a scoreboard rendering every tick, and the spark
+  main-thread-JDBC profile all need a connected client. Those rest on the 770 unit tests — including
+  the `FR-P7` call-counter test that fails if a port is ever touched synchronously — and on the
+  structural fact that `PlaceholderResolver` has no blocking path at all, unlike `VaultSyncPath`'s
+  `runBlocking`: nothing in `onRequest` can reach JDBC on the calling thread by construction. Still
+  worth a client-driven pass before calling the invariant proven, which is the one thing left.
 
 ---
 

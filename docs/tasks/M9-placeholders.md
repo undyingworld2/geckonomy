@@ -1,5 +1,35 @@
 # Task M9 — PlaceholderAPI Expansion
 
+> **Amended during the milestone. Read this box before the body — three sections below are now
+> wrong where they contradict it.**
+>
+> 1. **Offline balances resolve; they do not render a fallback forever.** §"The shape of the problem"
+>    said "balances come from the mirror or not at all", which made an offline player's balance
+>    permanently unknowable — the very lie ("`0` for a player who merely logged out … a scoreboard
+>    will show for hours") that same section argues against. `OfflineBalanceCache` now answers from
+>    memory and fills **behind** the render, so the truth appears a tick or two later and the main
+>    thread still never touches JDBC. FR-P7's intent is intact; only "from the mirror or not at all"
+>    is gone. `SPEC.md §4.7` was rewritten to match.
+> 2. **`OnlineBalanceMirror` moved to `infrastructure/balance/`**, beside `OfflineBalanceCache`. Two
+>    adapters read it now, so the `vault` package no longer describes who owns it.
+> 3. **Malformed and absent ranks answer differently**, because the spec asked for both and could not
+>    have both: line 99 said a rank outside the snapshot → `null`, while §"Own rank is bounded" and
+>    the empty-snapshot rule said → fallback. Settled as: a rank that *cannot exist*
+>    (`baltop_player_abc`, `_0`) → `null`; a well-formed rank the snapshot does not hold — including
+>    every rank in the first minute before the timer's first refresh — → fallback. The alternative
+>    prints raw `%geckonomy_baltop_player_1%` across every scoreboard on every server start.
+>
+> **The spike came out the opposite way to M7's.** `PlaceholderExpansion`'s constructor only calls
+> `PlaceholderHook.<init>` (which is `Object.<init>`) and sets a field; there is no static
+> initializer. It builds fine under plain JUnit *and* MockBukkit with no PAPI running, so
+> `GeckonomyExpansion` **is** tested — `persist()`, the identifier, the advertised table, delegation.
+> Only `register()` stays untestable. The resolver split earned its place on its own merits.
+>
+> **A trap the spike found on the way:** `PlaceholderHook.onRequest` passes `null` to
+> `onPlaceholderRequest` whenever the player is offline, discarding *which* player was asked about.
+> Overriding that method instead of `onRequest` would make every offline placeholder unanswerable —
+> which is most of a tab list.
+
 **Goal:** A read-only PlaceholderAPI expansion under the identifier `geckonomy`, exposing currency
 metadata, player balances and the leaderboard to scoreboard/tab/hologram/chat plugins — without ever
 touching the database from the main thread.

@@ -94,6 +94,14 @@ class ConfigLoaderTest {
         assertEquals(RoundingMode.HALF_UP, settings.roundingMode)
         assertTrue(settings.keepTransactionHistory)
         assertEquals(10, settings.baltopSize)
+        assertTrue(settings.claimVaultEconomy)
+    }
+
+    @Test
+    fun `claim-vault-economy parses false`() {
+        val settings = loaded(VALID.replace("baltop-size: 10", "baltop-size: 10\n  claim-vault-economy: false"))
+            .config.settings
+        assertFalse(settings.claimVaultEconomy)
     }
 
     @Test
@@ -103,7 +111,7 @@ class ConfigLoaderTest {
         assertEquals(StorageType.SQLITE, config.storage.type)
         assertEquals(Path.of(DEFAULT_SQLITE_FILE), config.storage.file)
         assertEquals(emptyMap<String, String>(), config.storage.properties)
-        assertEquals(SettingsConfig("default", "en", false, RoundingMode.HALF_UP, true, 10), config.settings)
+        assertEquals(SettingsConfig("default", "en", false, RoundingMode.HALF_UP, true, 10, true), config.settings)
         with(config.currencies.single()) {
             assertEquals(BigDecimal("0.00"), startingBalance)
             assertEquals(CurrencyScope.SERVER, scope)

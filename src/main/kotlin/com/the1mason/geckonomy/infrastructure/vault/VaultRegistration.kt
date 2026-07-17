@@ -28,11 +28,14 @@ internal class VaultRegistration(
     messages: MessageService,
     format: FormatMoney,
     rounding: () -> RoundingPolicy,
+    claimEconomy: () -> Boolean,
     scope: CoroutineScope,
     logger: Logger,
 ) : AutoCloseable {
 
     private val responses = ResponseMapper(messages, format)
+
+    private val claim = EconomyClaim(plugin, claimEconomy, logger)
 
     private val v2 = VaultUnlockedEconomyProvider(
         enabled = plugin::isEnabled,
@@ -57,11 +60,17 @@ internal class VaultRegistration(
     /** Both, at [ServicePriority.Highest]: Geckonomy owns the economy, it does not share it. */
     fun register() {
         val services = plugin.server.servicesManager
+        // Sweep first, so ours register into a clean slot; then listen, so a competitor enabling
+        // later is caught too. Our own two registrations below are never suppressed ([EconomyClaim]
+        // excludes them), so the order between them and [listen] does not matter.
+        claim.sweep()
         services.register(VaultUnlockedEconomy::class.java, v2, plugin, ServicePriority.Highest)
         services.register(LegacyVaultEconomy::class.java, v1, plugin, ServicePriority.Highest)
+        claim.listen()
     }
 
     override fun close() {
+        claim.stop()
         val services = plugin.server.servicesManager
         services.unregister(VaultUnlockedEconomy::class.java, v2)
         services.unregister(LegacyVaultEconomy::class.java, v1)

@@ -35,6 +35,7 @@
         <!-- Provided by the server. -->
         <paper.version>26.1.2.build.74-stable</paper.version>
         <vault.version>2.20</vault.version>
+        <papi.version>2.12.3</papi.version>
 
         <!-- Test-only. -->
         <!-- JUnit 6: not a preference. MockBukkit 4.114.0 depends on junit-jupiter-api 6.1.0,
@@ -156,6 +157,12 @@
             <id>codemc-creatorfromhell</id>
             <url>https://repo.codemc.io/repository/creatorfromhell/</url>
         </repository>
+        <!-- PlaceholderAPI's own repository. Not repo.extendedclip.com, which serves the eCloud
+             expansions rather than the plugin API. -->
+        <repository>
+            <id>helpchat</id>
+            <url>https://repo.helpch.at/releases/</url>
+        </repository>
     </repositories>
 
     <dependencies>
@@ -170,6 +177,14 @@
             <groupId>net.milkbowl.vault</groupId>
             <artifactId>VaultUnlockedAPI</artifactId>
             <version>${vault.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- A server plugin, not a GeckonomyLoader library: it belongs here and NOT in
+             geckonomy-libraries.txt, for the same reason VaultUnlockedAPI is absent from it. -->
+        <dependency>
+            <groupId>me.clip</groupId>
+            <artifactId>placeholderapi</artifactId>
+            <version>${papi.version}</version>
             <scope>provided</scope>
         </dependency>
 
@@ -210,6 +225,17 @@
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          Virtual time, for the timer loops M9 added: a snapshot refreshing every 60s cannot be
+          tested with real sleeps (CODING_STANDARDS §6). The persistence suites deliberately stay on
+          `runBlocking` - real queries against a real database have no virtual time to skip.
+        -->
+        <dependency>
+            <groupId>org.jetbrains.kotlinx</groupId>
+            <artifactId>kotlinx-coroutines-test</artifactId>
+            <version>${coroutines.version}</version>
             <scope>test</scope>
         </dependency>
         <!--

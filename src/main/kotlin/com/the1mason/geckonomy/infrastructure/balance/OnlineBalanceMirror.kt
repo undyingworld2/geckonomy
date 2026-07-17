@@ -1,4 +1,4 @@
-package com.the1mason.geckonomy.infrastructure.vault
+package com.the1mason.geckonomy.infrastructure.balance
 
 import com.the1mason.geckonomy.domain.model.AccountId
 import com.the1mason.geckonomy.domain.model.CurrencyCode
@@ -6,8 +6,11 @@ import java.math.BigDecimal
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Online players' balances, so the synchronous Vault path can answer without touching the database
+ * Online players' balances, so a synchronous caller can answer without touching the database
  * (ARCHITECTURE.md §4).
+ *
+ * Two adapters read it — the Vault sync path and the PlaceholderAPI expansion — which is why it
+ * lives here rather than in either of their packages.
  *
  * A read cache, never a write-behind buffer: the database stays the source of truth, and [put] stores
  * only a balance it actually returned — never one the adapter predicted. A write awaits its use case

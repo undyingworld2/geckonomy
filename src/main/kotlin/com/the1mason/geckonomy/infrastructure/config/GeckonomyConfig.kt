@@ -17,4 +17,5 @@ data class GeckonomyConfig(
     val storage: StorageConfig,
     val currencies: List<Currency>,
     val settings: SettingsConfig,
+    val placeholders: PlaceholderConfig,
 )

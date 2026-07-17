@@ -24,12 +24,7 @@ class FormatMoney(private val locale: () -> Locale = { Locale.getDefault() }) {
     /** [money] as `$100.00`, `5 Gems`, `1 Gem` — whatever its currency's template asks for. */
     operator fun invoke(money: Money): String {
         val currency = money.currency
-        val amount = NumberFormat.getNumberInstance(locale()).apply {
-            // Both bounds, so a 2-digit currency shows 100.00 rather than NumberFormat's default 100.
-            minimumFractionDigits = currency.fractionalDigits
-            maximumFractionDigits = currency.fractionalDigits
-            isGroupingUsed = true
-        }.format(money.amount)
+        val amount = amount(money)
 
         // One pass over the template, not a chain of replace() calls. Chained, each replacement would
         // re-scan text an earlier one inserted, so a currency whose symbol contained "<amount>" would
@@ -42,6 +37,22 @@ class FormatMoney(private val locale: () -> Locale = { Locale.getDefault() }) {
             }
         }
     }
+
+    /**
+     * Just the grouped digits — `1,000.00` — with no template around them.
+     *
+     * Split out for the `_commas` placeholder, which wants the number alone. It shares [invoke]'s
+     * one `NumberFormat` on purpose: a second one built elsewhere would drift from the currency's
+     * `fractionalDigits` and the reloadable locale, and the two would disagree about `1,000.00` in
+     * ways nobody would trace back to two formatters.
+     */
+    fun amount(money: Money): String =
+        NumberFormat.getNumberInstance(locale()).apply {
+            // Both bounds, so a 2-digit currency shows 100.00 rather than NumberFormat's default 100.
+            minimumFractionDigits = money.currency.fractionalDigits
+            maximumFractionDigits = money.currency.fractionalDigits
+            isGroupingUsed = true
+        }.format(money.amount)
 
     private companion object {
         /** `NumberFormat` is not thread-safe, so it is built per call; this is the only shareable part. */

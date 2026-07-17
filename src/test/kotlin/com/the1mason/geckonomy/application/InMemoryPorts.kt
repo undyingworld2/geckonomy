@@ -55,7 +55,19 @@ internal abstract class Failable {
     var failWith: Exception? = null
     var stall: Duration = Duration.ZERO
 
+    /**
+     * Port calls made so far — the only way to assert that something did **not** touch storage.
+     *
+     * M9's placeholders are the reason it exists: `FR-P7` says they never perform database IO, and
+     * every other symptom of breaking that rule (a stalled tick) is invisible to a test. Counted in
+     * [checkFailure] because every real port method already calls it; the rewind helpers
+     * ([Snapshotting]) do not, and are not port calls.
+     */
+    var calls = 0
+        private set
+
     protected suspend fun checkFailure() {
+        calls++
         if (stall > Duration.ZERO) delay(stall)
         failWith?.let { failWith = null; throw it }
     }

@@ -54,6 +54,31 @@ settings:
   rounding-mode: HALF_UP  # any java.math.RoundingMode
   keep-transaction-history: true
   baltop-size: 10
+  claim-vault-economy: true   # Geckonomy is the ONLY economy. When true it unregisters any other
+                              # Vault economy provider so shops and similar plugins can never bind to
+                              # the wrong one - including EssentialsX, whose economy does not stand
+                              # down on its own and has no setting to make it. Set false only if you
+                              # deliberately run another economy plugin alongside Geckonomy.
+
+# ── Placeholders ────────────────────────────────────────────────────────
+# The PlaceholderAPI expansion (%geckonomy_...%). Only used when PlaceholderAPI
+# is installed; without it Geckonomy runs normally and says so at startup.
+placeholders:
+  baltop-refresh-seconds: 60   # how often the leaderboard snapshot is rebuilt. Placeholders never
+                               # query the database, so the leaderboard is at most this far behind.
+                               # Minimum 5.
+  offline-cache-seconds: 60    # an offline player's balance is read once and reused for this long.
+                               # Online players always read live from memory, so this affects only
+                               # players who have logged out.
+  fallback: "0"                # shown while a value is not known yet: the first render for an
+                               # offline player (the real balance appears a tick later), or a rank
+                               # nobody holds.
+                               #
+                               # NOTE: %geckonomy_baltop_rank% is answered from the leaderboard
+                               # snapshot, so it is bounded by baltop-size above - a player outside
+                               # the top N has no rank and shows this instead. A true rank would
+                               # need a database count for every player every tick, which is exactly
+                               # what these placeholders are built not to do.
 
 # ── Cross-server sync (RESERVED — not active in v1) ──────────────────────
 # Live propagation of `network` currencies between servers. Until this ships, a

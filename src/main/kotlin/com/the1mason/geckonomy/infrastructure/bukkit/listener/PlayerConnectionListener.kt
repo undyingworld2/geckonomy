@@ -3,7 +3,7 @@ package com.the1mason.geckonomy.infrastructure.bukkit.listener
 import com.the1mason.geckonomy.application.result.Outcome
 import com.the1mason.geckonomy.application.service.EconomyService
 import com.the1mason.geckonomy.domain.model.AccountId
-import com.the1mason.geckonomy.infrastructure.vault.OnlineBalanceMirror
+import com.the1mason.geckonomy.infrastructure.balance.OnlineBalanceMirror
 import com.the1mason.geckonomy.infrastructure.vault.VaultSyncPath
 import kotlinx.coroutines.runBlocking
 import org.bukkit.event.EventHandler
