@@ -30,8 +30,31 @@ and tab completion.
   bypasses per-currency permission nodes.
 - `/baltop` uses `BalanceRepository.top(currency, baltop-size)`; render names via account name map.
 - Tab completion: online players, permitted currency codes, `eco` subcommands.
-- Register `/balance` with alias `/bal`. Register commands (Cloud v2 recommended, else Bukkit). Declare
-  permissions with defaults in `paper-plugin.yml`.
+- Register `/balance` with alias `/bal`. Declare permissions with defaults in `paper-plugin.yml`.
+
+## Command framework: Paper Brigadier — **not** Cloud v2
+
+This spec recommended Cloud v2. It was chosen at review, added, and reverted on evidence; the note stays
+so nobody spends the afternoon again.
+
+**Every Cloud command manager reflects into NMS/CraftBukkit in its constructor**, so none can be
+instantiated under MockBukkit, which is API-only:
+
+- `PaperCommandManager` → `ModernPaperBrigadier` → `ClassNotFoundException:
+  net.minecraft.commands.synchronization.ArgumentTypeInfos`
+- `LegacyPaperCommandManager` → `BukkitCommandPreprocessor` → `ClassNotFoundException:
+  org.bukkit.craftbukkit.command.VanillaCommandWrapper`
+
+The legacy manager makes Brigadier opt-in and looks like the escape hatch. It is not: the reflection
+lives in the Bukkit base class, above that choice. Since the acceptance criteria below are MockBukkit
+tests per command, Cloud would have meant no CI coverage of parsing, permissions, or the `/bal` alias.
+
+Paper's Brigadier (`io.papermc.paper.command.brigadier`, in `paper-api` — no dependency, no beta) passes
+all of it. Three rules it costs time to rediscover, all encoded in `CommandHarness`:
+
+1. Register inside `onEnable`. `JavaPlugin.allowsLifecycleRegistration` flips false once enable returns.
+2. Dispatch with `server.dispatchCommand`. `ServerMock.execute` reads the legacy command map and NPEs.
+3. A test plugin must be `open` — MockBukkit subclasses it with ByteBuddy.
 
 ## Acceptance / tests
 - MockBukkit tests: each command's happy path + base-permission denial + **per-currency** denial +

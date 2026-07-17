@@ -116,6 +116,13 @@ nodes `geckonomy.balance.<code>`, `geckonomy.balance.others.<code>`, `geckonomy.
 `geckonomy.baltop.<code>` (wildcards `.*`). A currency action is allowed only when **both** the config
 flag permits it **and** the player holds the node.
 
+These nodes are named after your currencies, so they cannot be listed in `paper-plugin.yml` like the
+base nodes are. Geckonomy registers them **at startup and on every `/geckonomy reload`**, reading them
+straight from `currencies[]` — add a currency, reload, and its four nodes exist. Each defaults to
+**true** (the opt-out model: deny the ones you want to sell). The `.*` wildcards default to **op**,
+because they also grant currencies added later, and are registered holding every current currency as a
+child — which is what makes granting `geckonomy.pay.*` work on a server with no permissions plugin.
+
 ## 3. Validation rules (fail fast on load)
 
 - `storage.type` ∈ {`sqlite`, `mariadb`}; required backend fields present (`file` for SQLite;

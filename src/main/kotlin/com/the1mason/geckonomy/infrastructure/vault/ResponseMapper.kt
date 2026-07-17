@@ -6,6 +6,7 @@ import com.the1mason.geckonomy.application.result.Outcome
 import com.the1mason.geckonomy.application.result.TransferResult
 import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.domain.model.AccountId
+import com.the1mason.geckonomy.infrastructure.i18n.ErrorMessages
 import com.the1mason.geckonomy.infrastructure.i18n.MessageKey
 import com.the1mason.geckonomy.infrastructure.i18n.MessageService
 import com.the1mason.geckonomy.infrastructure.i18n.Placeholders
@@ -25,8 +26,11 @@ import java.math.BigDecimal
  */
 class ResponseMapper(
     private val messages: MessageService,
-    private val format: FormatMoney,
+    format: FormatMoney,
 ) {
+
+    /** Shared with the command path, so the two cannot disagree about what an error says. */
+    private val errors = ErrorMessages(messages, format)
 
     /**
      * @param requested the amount the caller asked to move, echoed back as `EconomyResponse.amount`.
@@ -81,30 +85,11 @@ class ResponseMapper(
                 MultiEconomyResponse(BigDecimal.ZERO, ResponseType.FAILURE, errorMessage(outcome.error))
         }
 
-    fun errorMessage(error: EconomyError): String = PLAIN.serialize(render(error))
-
-    private fun render(error: EconomyError) = when (error) {
-        is EconomyError.UnknownCurrency ->
-            messages.render(MessageKey.ERROR_UNKNOWN_CURRENCY, Placeholders.text("currency", error.code.value))
-
-        // <target> is the UUID: there is no account, so there is no name to have read, and resolving one
-        // here would be the database read this path exists to avoid. A Vault caller knows what it passed.
-        is EconomyError.AccountNotFound ->
-            messages.render(MessageKey.ERROR_ACCOUNT_NOT_FOUND, Placeholders.text("target", error.id.value.toString()))
-
-        is EconomyError.InsufficientFunds -> messages.render(
-            MessageKey.ERROR_INSUFFICIENT_FUNDS,
-            Placeholders.of(
-                // The name when the use case could read one, else the UUID: this string reaches players
-                // through any plugin that shows Vault's errorMessage.
-                Placeholders.text("target", error.name ?: error.id.value.toString()),
-                Placeholders.money("formatted", error.required, format),
-            ),
-        )
-
-        is EconomyError.InvalidAmount -> messages.render(MessageKey.ERROR_INVALID_AMOUNT)
-        is EconomyError.StorageFailure -> messages.render(MessageKey.ERROR_STORAGE)
-    }
+    /**
+     * No `target` is passed: a Vault caller gets the UUID it handed us, because this path never read a
+     * name and reading one would be the database round trip it exists to avoid.
+     */
+    fun errorMessage(error: EconomyError): String = PLAIN.serialize(errors.render(error))
 
     private companion object {
         val PLAIN: PlainTextComponentSerializer = PlainTextComponentSerializer.plainText()

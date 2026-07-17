@@ -14,6 +14,7 @@ import com.the1mason.geckonomy.application.usecase.GetBalance
 import com.the1mason.geckonomy.application.usecase.Has
 import com.the1mason.geckonomy.application.usecase.ListAccountNames
 import com.the1mason.geckonomy.application.usecase.ListCurrencies
+import com.the1mason.geckonomy.application.usecase.ListTopBalances
 import com.the1mason.geckonomy.application.usecase.RenameAccount
 import com.the1mason.geckonomy.application.usecase.SetBalance
 import com.the1mason.geckonomy.application.usecase.StorageGuard
@@ -32,7 +33,19 @@ import com.the1mason.geckonomy.infrastructure.config.ConfigService
 import com.the1mason.geckonomy.infrastructure.config.GeckonomyConfig
 import com.the1mason.geckonomy.infrastructure.config.StartOutcome
 import com.the1mason.geckonomy.infrastructure.config.StorageType
+import com.the1mason.geckonomy.infrastructure.bukkit.BukkitMainThread
+import com.the1mason.geckonomy.infrastructure.bukkit.CurrencyAccess
+import com.the1mason.geckonomy.infrastructure.bukkit.PlayerTargets
+import com.the1mason.geckonomy.infrastructure.bukkit.command.BalanceCommand
+import com.the1mason.geckonomy.infrastructure.bukkit.command.BaltopCommand
+import com.the1mason.geckonomy.infrastructure.bukkit.command.CommandReplies
+import com.the1mason.geckonomy.infrastructure.bukkit.command.EcoCommand
+import com.the1mason.geckonomy.infrastructure.bukkit.command.GeckonomyCommand
+import com.the1mason.geckonomy.infrastructure.bukkit.command.GeckonomyCommands
+import com.the1mason.geckonomy.infrastructure.bukkit.command.GeckonomyPermissions
+import com.the1mason.geckonomy.infrastructure.bukkit.command.PayCommand
 import com.the1mason.geckonomy.infrastructure.bukkit.listener.PlayerConnectionListener
+import com.the1mason.geckonomy.infrastructure.i18n.ErrorMessages
 import com.the1mason.geckonomy.infrastructure.i18n.LanguageRepository
 import com.the1mason.geckonomy.infrastructure.i18n.MessageService
 import com.the1mason.geckonomy.infrastructure.persistence.ConnectionSource
@@ -101,6 +114,9 @@ class Geckonomy : JavaPlugin() {
      */
     private var vault: AutoCloseable? = null
 
+    /** Held so [onDisable] can drop the per-currency nodes it registered. */
+    private var permissions: GeckonomyPermissions? = null
+
     /** Wiring order is ARCHITECTURE.md §7; each step needs the one above it. */
     override fun onEnable() {
         val config = loadConfig() ?: return
@@ -125,7 +141,43 @@ class Geckonomy : JavaPlugin() {
         } else {
             null // Not fatal: accounts, balances and commands all work. Only third-party integration is lost.
         }
+        registerCommands(config, economy, messages)
         logger.info("Geckonomy enabled.")
+    }
+
+    /**
+     * Commands, and the permission nodes they check (ARCHITECTURE.md §7 step 6).
+     *
+     * Needs no presence check, unlike the Vault step: Brigadier is part of the server API, so there is
+     * nothing here that might be absent. It must run *inside* `onEnable` all the same — Paper closes
+     * the lifecycle-registration window the moment enable returns.
+     */
+    private fun registerCommands(config: ConfigService, economy: Economy, messages: MessageService) {
+        val access = CurrencyAccess(config.currencies)
+        val targets = PlayerTargets(server, economy.service)
+        val main = BukkitMainThread(this)
+        val errors = ErrorMessages(messages, economy.format)
+        val replies = CommandReplies(messages, errors, main)
+        val permissions = GeckonomyPermissions(server.pluginManager, config.currencies).apply { register() }
+        this.permissions = permissions
+
+        GeckonomyCommands(
+            plugin = this,
+            scope = scope,
+            currencies = config.currencies,
+            access = access,
+            targets = targets,
+            replies = replies,
+            balance = BalanceCommand(economy.service, access, targets, replies, economy.format),
+            pay = PayCommand(economy.service, access, targets, replies, messages, economy.format, main, server),
+            baltop = BaltopCommand(
+                economy.service, access, replies, messages, economy.format, main,
+                // Per call, not captured: `settings.baltop-size` is reloadable.
+                size = { config.current.settings.baltopSize },
+            ),
+            eco = EcoCommand(economy.service, targets, replies, economy.format),
+            geckonomy = GeckonomyCommand(config, messages, replies, permissions, logger, pluginMeta.version),
+        ).register()
     }
 
     /**
@@ -202,6 +254,10 @@ class Geckonomy : JavaPlugin() {
         // and call it, and everything below this line is what that call would land on.
         vault?.close()
         vault = null
+        // Commands themselves unregister with the plugin; these do not, and a stale node would
+        // outlive a reload-on-disable cycle.
+        permissions?.unregister()
+        permissions = null
         scope.cancel("Geckonomy is disabling")
         economy = null
         messages = null
@@ -382,6 +438,7 @@ class Geckonomy : JavaPlugin() {
             has = Has(getBalance, amounts),
             canDeposit = CanDeposit(storage.accounts, amounts, guard),
             canWithdraw = CanWithdraw(getBalance, amounts, storage.overdraft),
+            listTopBalances = ListTopBalances(storage.accounts, storage.balances, amounts, guard),
             deposit = Deposit(storage.unitOfWork, amounts, transactions, guard),
             withdraw = Withdraw(storage.unitOfWork, amounts, transactions, guard),
             setBalance = SetBalance(storage.unitOfWork, amounts, storage.overdraft, transactions, guard),

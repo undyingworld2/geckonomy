@@ -102,6 +102,28 @@ abstract class RepositoryContract {
     }
 
     @Test
+    fun `names only the accounts asked for`() = runBlocking {
+        harness.accounts.create(account(ALICE, "Alice"))
+        harness.accounts.create(account(BOB, "Bob"))
+
+        assertEquals(mapOf(ALICE to "Alice"), harness.accounts.namesOf(listOf(ALICE)))
+        assertEquals(mapOf(ALICE to "Alice", BOB to "Bob"), harness.accounts.namesOf(listOf(ALICE, BOB)))
+    }
+
+    @Test
+    fun `omits ids that have no account rather than failing`() = runBlocking {
+        harness.accounts.create(account(ALICE, "Alice"))
+
+        assertEquals(mapOf(ALICE to "Alice"), harness.accounts.namesOf(listOf(ALICE, BOB)))
+    }
+
+    /** `IN ()` is a syntax error on both backends, so the empty case must never reach the database. */
+    @Test
+    fun `names nothing when asked for nothing`() = runBlocking {
+        assertEquals(emptyMap<AccountId, String>(), harness.accounts.namesOf(emptyList()))
+    }
+
+    @Test
     fun `renames an account`() = runBlocking {
         harness.accounts.create(account(ALICE, "Alice"))
 

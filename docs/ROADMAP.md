@@ -108,6 +108,41 @@ Pure model + ports, fully unit-tested.
 - Permissions, tab completion, async execution, localized output.
 - **Depends on:** M4, M5
 - **Done when:** all commands work end-to-end on a live server with correct permissions and messages.
+- **Done:** 706 tests green (591 at M6), and for the first time **no suite is skipped** — the two
+  MariaDB suites ran here. M5's bet paid: the whole vocabulary was already in `MessageKey`/`en.yml`, and
+  M7 added **no message key**.
+
+  Review chose Cloud v2, then a spike disproved its premise and it was **reverted to Paper Brigadier**.
+  Every Cloud command manager — modern *and* legacy — reflects into NMS/CraftBukkit in its constructor
+  (`ArgumentTypeInfos`, `VanillaCommandWrapper`), so none can be built under MockBukkit, and M7's
+  acceptance criteria are MockBukkit tests per command. The legacy manager was checked precisely because
+  it makes Brigadier opt-in and looked like the escape hatch; the reflection is in the Bukkit base class,
+  above that choice. Brigadier passes, needs no dependency, and is in `paper-api` already. The order was
+  the point: the spike ran before a line of command code existed.
+
+  `/baltop` had no use case at all — `BalanceRepository.top` shipped at M3 with nothing above it. Added
+  `ListTopBalances` plus an `AccountRepository.namesOf(ids)` port method (one `IN` query, bounded by
+  `baltop-size`) rather than spending `nameMap()`'s full table scan to label ten rows, which
+  `ListAccountNames`' own KDoc had already warned against.
+
+  Three bugs the tests caught that review had not. **`/balance gems` read as a player name**: two
+  `word()` arguments cannot disambiguate by content — Brigadier matches the first child greedily — so
+  the handler decides, and `/balance <word>` is a currency if it names one and a player otherwise (a
+  word that is neither reads as a missing player; the unambiguous position still reports the currency).
+  **`/eco give` reported the balance, not the amount** — every use case returns the resulting balance,
+  so giving $100 to a player holding $1000 said "Gave $1100.00". **`GeckonomyPermissions.register`
+  threw on a node that already existed**, which would have failed the *enable* after an unclean disable;
+  it now replaces rather than adds, and tracks what it registered because a reload swaps the registry
+  before it is called.
+
+  The permission traps are real and invisible to an op: an unregistered node defaults to **op**, so the
+  per-currency nodes had to be registered at enable from the registry with `PermissionDefault.TRUE`
+  (SPEC §7's opt-out model), and a wildcard grants nothing unless registered holding its children.
+  `GeckonomyPermissionsTest` asserts a **non-op** passes them.
+
+  Also fixed a latent build bug: `io.mockk:mockk` is the multiplatform artifact whose jar holds no
+  classes, so MockK had never worked under Maven — declared since M0 and unnoticed because nothing used
+  it until now. It is `mockk-jvm`.
 
 ### M8 — Hardening & release  ·  `tasks/M8-hardening-release.md`
 - Structured logging, slow-op warnings, optional bStats, error-path review.

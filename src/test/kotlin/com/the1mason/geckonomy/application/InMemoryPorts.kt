@@ -97,6 +97,12 @@ internal class InMemoryAccountRepository : AccountRepository, Failable(), Snapsh
         return accounts.mapValues { (_, account) -> account.name }
     }
 
+    /** Absent ids are absent from the result, not `null`-mapped — the port's contract. */
+    override suspend fun namesOf(ids: Collection<AccountId>): Map<AccountId, String> {
+        checkFailure()
+        return ids.mapNotNull { id -> accounts[id]?.let { id to it.name } }.toMap()
+    }
+
     override suspend fun rename(id: AccountId, name: String): Boolean {
         checkFailure()
         val account = accounts[id] ?: return false

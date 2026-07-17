@@ -47,11 +47,14 @@ com.the1mason.geckonomy
 │   │                SqlTransactionLog, SqlUnitOfWork, IoDispatcher
 │   ├── config       GeckonomyConfig, ConfigLoader, StorageConfig, CurrencyConfig, SettingsConfig
 │   ├── i18n         MessageService, MiniMessageRenderer, Placeholders, LanguageRepository,
-│   │                MessageKey
+│   │                MessageKey, ErrorMessages
 │   ├── vault        VaultUnlockedEconomyProvider (v2), LegacyVaultEconomyProvider (v1),
 │   │                GeckonomyAsyncEconomy, ResponseMapper, LegacyResponseMapper,
-│   │                OnlineBalanceMirror, PlayerResolver
-│   └── bukkit       command/*, listener/PlayerConnectionListener, BukkitMainThread
+│   │                OnlineBalanceMirror, PlayerResolver, VaultRegistration, VaultSyncPath
+│   └── bukkit       BukkitMainThread, PlayerTargets, CurrencyAccess,
+│                    command/{GeckonomyCommands, GeckonomyPermissions, CommandReplies,
+│                             Balance,Pay,Baltop,Eco,Geckonomy Command},
+│                    listener/PlayerConnectionListener
 └── Geckonomy.kt     composition root
 ```
 
@@ -65,7 +68,11 @@ interface AccountRepository {
     suspend fun create(account: Account): Boolean          // idempotent
     suspend fun exists(id: AccountId): Boolean
     suspend fun findName(id: AccountId): String?
-    suspend fun nameMap(): Map<AccountId, String>
+    suspend fun nameMap(): Map<AccountId, String>          // unbounded; Vault's getUUIDNameMap
+    // Bounded by its argument, for a caller that already knows which accounts it wants — /baltop
+    // labels ten rows, and nameMap() would read every account on the server to do it. Ids with no
+    // account are absent from the result rather than mapped to null.
+    suspend fun namesOf(ids: Collection<AccountId>): Map<AccountId, String>
     suspend fun rename(id: AccountId, name: String): Boolean
     suspend fun delete(id: AccountId): Boolean
 }

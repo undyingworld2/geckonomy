@@ -1,6 +1,7 @@
 package com.the1mason.geckonomy.infrastructure.vault
 
 import com.the1mason.geckonomy.domain.model.AccountId
+import com.the1mason.geckonomy.infrastructure.bukkit.serverLookup
 import org.bukkit.OfflinePlayer
 import org.bukkit.Server
 import java.time.Clock
@@ -10,15 +11,14 @@ import java.time.Instant
 /**
  * Resolves the legacy API's `String playerName` to an [AccountId] (VAULT_INTEGRATION.md §8).
  *
- * **Never calls `Server.getOfflinePlayer(String)`.** Its own javadoc says it "may involve a blocking
- * web request to get the UUID" — a Mojang round trip on the main thread, on a path a shop plugin can
- * hit every tick. It also never fails, inventing an [OfflinePlayer] for names that were never real,
- * so it cannot even tell us the name was bogus. `getOfflinePlayerIfCached` is the same lookup against
- * the local usercache with neither problem.
+ * Sources, in order: [serverLookup]'s two — online players, then Paper's usercache, and never a
+ * Mojang round trip; see that function for the rule — and then our own account name map. The last is a
+ * genuine rarity, since an account exists only because the player joined and joining is what puts them
+ * in the usercache, so it is read behind a [ttl] cache rather than per call.
  *
- * Sources, in order: online players, Paper's usercache, then our own account name map. The last is a
- * genuine rarity — an account exists only because the player joined, and joining is what puts them in
- * the usercache — so it is read behind a [ttl] cache rather than per call.
+ * The command path resolves the same name against the same two sources but suspends for the third
+ * instead of blocking, and caches nothing (`bukkit.PlayerTargets`). Only [serverLookup] is shared:
+ * everything else here exists because Vault's API is synchronous and can be called every tick.
  */
 internal class PlayerResolver(
     private val server: Server,
@@ -38,9 +38,7 @@ internal class PlayerResolver(
 
     /** `null` when [name] matches nobody we know — the legacy API's `false`/`FAILURE`. */
     fun resolve(name: String): AccountId? =
-        server.getPlayerExact(name)?.let { AccountId(it.uniqueId) }
-            ?: server.getOfflinePlayerIfCached(name)?.let { AccountId(it.uniqueId) }
-            ?: fromAccountNames(name)
+        serverLookup(server, name) ?: fromAccountNames(name)
 
     private fun fromAccountNames(name: String): AccountId? {
         if (isStale()) reload()

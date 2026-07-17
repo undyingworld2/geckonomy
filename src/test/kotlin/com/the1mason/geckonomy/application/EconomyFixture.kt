@@ -14,6 +14,7 @@ import com.the1mason.geckonomy.application.usecase.GetBalance
 import com.the1mason.geckonomy.application.usecase.Has
 import com.the1mason.geckonomy.application.usecase.ListAccountNames
 import com.the1mason.geckonomy.application.usecase.ListCurrencies
+import com.the1mason.geckonomy.application.usecase.ListTopBalances
 import com.the1mason.geckonomy.application.usecase.RenameAccount
 import com.the1mason.geckonomy.application.usecase.SetBalance
 import com.the1mason.geckonomy.application.usecase.StorageGuard
@@ -72,6 +73,9 @@ internal class EconomyFixture(allowOverdraft: Boolean = false) {
     /** `keep-transaction-history`, flippable mid-test to prove the setting is read per call. */
     var keepHistory = true
 
+    /** Exposed as well as injected, the way the composition root exposes it: renderers need the same one. */
+    val format = FormatMoney { Locale.US }
+
     /**
      * A real [EconomyService] over the fakes, assembled the way `Geckonomy.onEnable` assembles it.
      *
@@ -88,6 +92,7 @@ internal class EconomyFixture(allowOverdraft: Boolean = false) {
             has = Has(getBalance, amounts),
             canDeposit = CanDeposit(accounts, amounts, guard),
             canWithdraw = CanWithdraw(getBalance, amounts, overdraft),
+            listTopBalances = ListTopBalances(accounts, balances, amounts, guard),
             deposit = Deposit(unitOfWork, amounts, transactions, guard),
             withdraw = Withdraw(unitOfWork, amounts, transactions, guard),
             setBalance = SetBalance(unitOfWork, amounts, overdraft, transactions, guard),
@@ -95,7 +100,7 @@ internal class EconomyFixture(allowOverdraft: Boolean = false) {
             renameAccount = RenameAccount(accounts, guard),
             deleteAccount = DeleteAccount(unitOfWork, { keepHistory }, guard),
             listCurrencies = ListCurrencies(currencies),
-            formatMoney = FormatMoney { Locale.US },
+            formatMoney = format,
             currencies = currencies,
         )
     }

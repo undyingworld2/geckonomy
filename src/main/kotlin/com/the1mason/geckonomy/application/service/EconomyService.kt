@@ -16,6 +16,8 @@ import com.the1mason.geckonomy.application.usecase.GetBalance
 import com.the1mason.geckonomy.application.usecase.Has
 import com.the1mason.geckonomy.application.usecase.ListAccountNames
 import com.the1mason.geckonomy.application.usecase.ListCurrencies
+import com.the1mason.geckonomy.application.usecase.ListTopBalances
+import com.the1mason.geckonomy.application.usecase.TopBalance
 import com.the1mason.geckonomy.application.usecase.RenameAccount
 import com.the1mason.geckonomy.application.usecase.SetBalance
 import com.the1mason.geckonomy.application.usecase.Transfer
@@ -51,6 +53,7 @@ class EconomyService(
     private val has: Has,
     private val canDeposit: CanDeposit,
     private val canWithdraw: CanWithdraw,
+    private val listTopBalances: ListTopBalances,
     private val deposit: Deposit,
     private val withdraw: Withdraw,
     private val setBalance: SetBalance,
@@ -99,6 +102,10 @@ class EconomyService(
     /** Whether a withdrawal would be accepted. Advisory — the real check is atomic, inside `adjust`. */
     suspend fun canWithdraw(id: AccountId, amount: BigDecimal, currency: CurrencyCode = defaultCode()): Outcome<Boolean> =
         canWithdraw.invoke(id, amount, currency)
+
+    /** The [limit] richest accounts in [currency], richest first. */
+    suspend fun top(currency: CurrencyCode = defaultCode(), limit: Int): Outcome<List<TopBalance>> =
+        listTopBalances.invoke(currency, limit)
 
     // ── Writes ──────────────────────────────────────────────────────────
 

@@ -16,6 +16,7 @@ import com.the1mason.geckonomy.application.usecase.GetBalance
 import com.the1mason.geckonomy.application.usecase.Has
 import com.the1mason.geckonomy.application.usecase.ListAccountNames
 import com.the1mason.geckonomy.application.usecase.ListCurrencies
+import com.the1mason.geckonomy.application.usecase.ListTopBalances
 import com.the1mason.geckonomy.application.usecase.RenameAccount
 import com.the1mason.geckonomy.application.usecase.SetBalance
 import com.the1mason.geckonomy.application.usecase.StorageGuard
@@ -300,6 +301,7 @@ class EconomyServiceSqliteTest {
             has = Has(getBalance, amounts),
             canDeposit = CanDeposit(harness.accounts, amounts, guard),
             canWithdraw = CanWithdraw(getBalance, amounts, harness.overdraft),
+            listTopBalances = ListTopBalances(harness.accounts, harness.balances, amounts, guard),
             deposit = Deposit(harness.unitOfWork, amounts, transactions, guard),
             withdraw = Withdraw(harness.unitOfWork, amounts, transactions, guard),
             setBalance = SetBalance(harness.unitOfWork, amounts, harness.overdraft, transactions, guard),

@@ -194,9 +194,16 @@
             <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
+        <!--
+          mockk-jvm, not mockk. `io.mockk:mockk` is the Kotlin-multiplatform artifact: its jar holds
+          metadata and no classes, and the JVM ones live in `mockk-jvm`. Gradle follows that through
+          module metadata; Maven cannot, so it resolves the empty jar and every reference fails to
+          compile. Declared as `mockk` from M0 through M6, where nothing used it - M7 was the first
+          test to try, which is how it surfaced.
+        -->
         <dependency>
             <groupId>io.mockk</groupId>
-            <artifactId>mockk</artifactId>
+            <artifactId>mockk-jvm</artifactId>
             <version>${mockk.version}</version>
             <scope>test</scope>
         </dependency>

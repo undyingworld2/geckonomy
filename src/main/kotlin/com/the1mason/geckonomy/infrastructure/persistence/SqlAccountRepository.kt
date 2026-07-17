@@ -73,6 +73,34 @@ class SqlAccountRepository(
         }
     }
 
+    /**
+     * One query, with a placeholder per id.
+     *
+     * The empty case returns without a connection because there is no valid SQL to send: `IN ()` is a
+     * syntax error on both backends. It is not a hypothetical — `/baltop` on a currency nobody holds
+     * yet has no rows to name.
+     *
+     * The `IN` list is built from the *count* of ids, never from their text; the ids themselves bind
+     * as parameters like everywhere else.
+     */
+    override suspend fun namesOf(ids: Collection<AccountId>): Map<AccountId, String> {
+        if (ids.isEmpty()) return emptyMap()
+        return withContext(dispatcher) {
+            val placeholders = ids.joinToString(", ") { "?" }
+            connections.use { connection ->
+                connection.prepareStatement("SELECT id, name FROM gk_account WHERE id IN ($placeholders)")
+                    .use { statement ->
+                        ids.forEachIndexed { index, id -> dialect.bindAccountId(statement, index + 1, id) }
+                        statement.executeQuery().use { rows ->
+                            buildMap {
+                                while (rows.next()) put(dialect.readAccountId(rows, "id"), rows.getString("name"))
+                            }
+                        }
+                    }
+            }
+        }
+    }
+
     override suspend fun rename(id: AccountId, name: String): Boolean = withContext(dispatcher) {
         connections.use { connection ->
             connection.prepareStatement("UPDATE gk_account SET name = ? WHERE id = ?").use { statement ->
