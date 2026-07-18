@@ -35,7 +35,7 @@ com.the1mason.geckonomy
 ├── application
 │   ├── service    EconomyService (facade of suspend fns)
 │   ├── usecase    CreateAccount, GetBalance, Has, Deposit, Withdraw, SetBalance, Transfer,
-│   │              RenameAccount, DeleteAccount, ListCurrencies, FormatMoney, AccountExists,
+│   │              RenameAccount, DeleteAccount, ListCurrencies, AccountExists,
 │   │              FindAccountName, ListAccountNames, CanDeposit, CanWithdraw;
 │   │              StorageGuard, Amounts, TransactionFactory (internal, shared)
 │   ├── result     Outcome (sealed), OperationResult, TransferResult, Transferred,
@@ -48,7 +48,7 @@ com.the1mason.geckonomy
 │   │                SqlTransactionLog, SqlUnitOfWork, IoDispatcher
 │   ├── config       GeckonomyConfig, ConfigLoader, StorageConfig, CurrencyConfig, SettingsConfig
 │   ├── i18n         MessageService, MiniMessageRenderer, Placeholders, LanguageRepository,
-│   │                MessageKey, ErrorMessages
+│   │                MessageKey, ErrorMessages, FormatMoney, CurrencyNames
 │   ├── vault        VaultUnlockedEconomyProvider (v2), LegacyVaultEconomyProvider (v1),
 │   │                GeckonomyAsyncEconomy, ResponseMapper, LegacyResponseMapper,
 │   │                OnlineBalanceMirror, PlayerResolver, VaultRegistration, VaultSyncPath

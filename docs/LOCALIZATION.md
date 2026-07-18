@@ -59,10 +59,24 @@ admin:
 baltop:
   header: "<prefix><gold>Top balances (<currency>)</gold>"
   entry: "<gray><rank>.</gray> <white><name></white> — <formatted>"
+
+# Optional (M10, SPEC.md FR-L5): per-language currency name overrides, keyed by currency code.
+# Partial and optional — a missing currency, or a missing key within one, falls back to config.yml.
+currencies:
+  coins:
+    singular: "Coin"
+    plural: "Coins"
+  gems:
+    singular: "Gem"
+    plural: "Gems"
 ```
 
 `<prefix>` is a convenience the `MessageService` injects (the `prefix` key) so every message can lead
 with it.
+
+The `currencies:` block is not a message — it holds no `<placeholder>`s and is not tracked by
+`MessageKey`/`MessageKeyCoverageTest`. It exists solely so a translator can give a currency a
+localized name without touching `config.yml`; see §4.
 
 ## 3. Placeholders
 
@@ -81,26 +95,54 @@ Resolved via MiniMessage `TagResolver`s built per message from context. Standard
 | `<usage>` | Correct syntax, on a usage error |
 
 Player-supplied strings are inserted as **unparsed** (`Placeholder.unparsed`) so players can't inject
-MiniMessage tags; only the template author's markup is parsed.
+MiniMessage tags; only the template author's markup is parsed. `infrastructure.i18n.Placeholders` is
+the single place that builds these resolvers, so a caller cannot get either rule below wrong by
+forgetting.
 
-**Everything** a resolver inserts is unparsed, not only player names — `infrastructure.i18n.Placeholders`
-is the single place that builds them, so a caller cannot forget. `<symbol>` and `<formatted>` matter as
-much as `<target>` here: a currency's `symbol` comes from `config.yml`, so a symbol of `<rainbow>` would
-otherwise colour the rest of the message from inside what is meant to be a value.
+**Currency-owned values are different, as of M10 (SPEC.md FR-L4).** `<symbol>`, `<currency>` and
+`<formatted>` come from `config.yml`/a lang file — owner-authored MiniMessage, not player input — and
+`FormatMoney` renders each to a **self-contained** `Component` before it is inserted
+(`Placeholder.component`, not `Placeholder.unparsed`). A `symbol: "<gradient:#f00:#00f>◆</gradient>"`
+therefore renders styled, and because it is already a finished component tree by the time it is
+spliced in, its style cannot bleed into the rest of the message — the same reason `<prefix>` has always
+worked this way. This reverses only the currency-value half of the original "everything is unparsed"
+rule; player-supplied text (`<target>`, `<sender>`, `<name>`, raw amounts) is untouched and still always
+unparsed.
 
 A tag the template names but the sender did not supply renders as **literal text** rather than throwing:
 language files are edited by server owners, and a typo should look wrong, not kill the command.
 
 ## 4. Money formatting
 
-`FormatMoney` renders a `Money` using its `Currency.format` template:
-- `<amount>` → amount at the currency's `fractional-digits`, grouped by locale.
-- `<symbol>` → `currency.symbol`.
-- `<currency>` → `singular` when amount == 1 else `plural` (`Currency.nameFor`, which owns that rule so
-  the two places that render names cannot disagree about a balance of exactly one).
+`FormatMoney` (`infrastructure.i18n`) renders a `Money` into a `Component`, using its `Currency.format`
+template:
+- `<amount>` → amount at the currency's `fractional-digits`, grouped by locale (unparsed — a formatted
+  number cannot carry markup, so parsed-vs-unparsed makes no difference here, but the rule stays
+  uniform).
+- `<symbol>` → `currency.symbol`, MiniMessage-rendered to a self-contained component (§3).
+- `<currency>` → the name for `Currency.roleFor(amount)` (singular for exactly one, else plural),
+  resolved through `CurrencyNames` — a lang file's `currencies.<code>.singular|plural` override if
+  present, else `config.yml`'s own value (SPEC.md FR-L5) — then MiniMessage-rendered the same way as
+  `<symbol>`.
+
+`Currency.roleFor`/`.nameFor` still own *which* role an amount selects, so the two places that render
+names (this and `Placeholders.currency`) cannot disagree about a balance of exactly one; `CurrencyNames`
+owns only the *string* for that role.
 
 Examples: `format: "<symbol><amount>"` → `$100.00`; `format: "<amount> <currency>"` → `5 Gems`,
 `1 Gem`.
+
+**In `infrastructure`, not `application`.** A `Component` is a framework type, and `application` may
+import only `domain` (CODING_STANDARDS.md §2) — so `FormatMoney` lives in `infrastructure.i18n`, and
+`EconomyService` no longer holds a reference to it. Every consumer (commands, PlaceholderAPI, both
+Vault providers) is handed the **same** instance directly by the composition root, so a command and a
+placeholder cannot disagree (SPEC.md FR-P5).
+
+**Plain/legacy projections.** Callers that can only return a `String` — PlaceholderAPI and Vault's
+`format(double)`/`currencyNameSingular()` family — call `Component.toLegacyText()`
+(`LegacyComponentSerializer.legacySection()`), so a scoreboard or a shop sign shows section-code colours
+approximating whatever MiniMessage the symbol/name used; a gradient or hex colour degrades to the
+nearest legacy colour. That loss is those APIs' own limit, not a bug in `FormatMoney`.
 
 **Locale.** Grouping comes from `Locale.forLanguageTag(settings.language)`, not the host JVM's default.
 `settings.language` names a file rather than a locale, but deriving one from it is what keeps text and

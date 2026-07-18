@@ -14,13 +14,13 @@ except `CancellationException`, which must.
 | Package | Holds |
 |---|---|
 | `service` | `EconomyService` — the facade of suspend functions |
-| `usecase` | `CreateAccount`, `GetBalance`, `Has`, `Deposit`, `Withdraw`, `SetBalance`, `Transfer`, `RenameAccount`, `DeleteAccount`, `ListCurrencies`, `FormatMoney`, `AccountExists`, `FindAccountName`, `ListAccountNames`, `CanDeposit`, `CanWithdraw`; `StorageGuard`, `Amounts`, `TransactionFactory` (internal) |
+| `usecase` | `CreateAccount`, `GetBalance`, `Has`, `Deposit`, `Withdraw`, `SetBalance`, `Transfer`, `RenameAccount`, `DeleteAccount`, `ListCurrencies`, `AccountExists`, `FindAccountName`, `ListAccountNames`, `CanDeposit`, `CanWithdraw`; `StorageGuard`, `Amounts`, `TransactionFactory` (internal) |
 | `result` | `Outcome` (sealed), `OperationResult`, `TransferResult`, `Transferred`, `EconomyError` (sealed) |
 | — | `Attribution` — who asked for a change |
 
 The layering rule is worth stating concretely, because it is easy to breach by reflex: the only
 non-`domain` imports here are JDK types (`java.math`, `java.time`, `java.text`, `java.util.logging`)
-and `kotlin.coroutines`. `FormatMoney` returns a `String`, not an Adventure `Component`, for exactly
-this reason — M5's renderer wraps it.
+and `kotlin.coroutines`. `FormatMoney` moved to `infrastructure.i18n` at **M10** for exactly this
+reason, once it started rendering an Adventure `Component` — a framework type this layer may not hold.
 
 Arrived with **M4**.

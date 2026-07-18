@@ -2,10 +2,13 @@
 
 One class per operation, verb-first, each taking its ports via the constructor and tested against
 fakes: `CreateAccount`, `GetBalance`, `Has`, `Deposit`, `Withdraw`, `SetBalance`, `Transfer`,
-`RenameAccount`, `DeleteAccount`, `ListCurrencies`, `FormatMoney` — plus `AccountExists`,
+`RenameAccount`, `DeleteAccount`, `ListCurrencies` — plus `AccountExists`,
 `FindAccountName`, `ListAccountNames` (SPEC FR-A2/A3) and `CanDeposit`, `CanWithdraw` (FR-B4), which
 M4's original list omitted. Without them M6's Vault adapter would have to reach past `EconomyService`
 to the repositories, and `EconomyService` would stop being the single entry point.
+
+(`FormatMoney` lived here through M9; it moved to `infrastructure.i18n` at **M10**, once rendering
+`Money` meant producing an Adventure `Component` — a framework type this layer may not hold.)
 
 Three `internal` collaborators state the repeated rules once, which is why the use cases are as short
 as they are:

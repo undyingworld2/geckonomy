@@ -1,14 +1,16 @@
 package com.the1mason.geckonomy.infrastructure.placeholder
 
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.application.usecase.TopBalance
 import com.the1mason.geckonomy.domain.model.AccountId
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.domain.model.CurrencyCode
 import com.the1mason.geckonomy.domain.model.Money
+import com.the1mason.geckonomy.domain.model.NameRole
 import com.the1mason.geckonomy.domain.port.CurrencyRegistry
 import com.the1mason.geckonomy.infrastructure.balance.OfflineBalanceCache
 import com.the1mason.geckonomy.infrastructure.balance.OnlineBalanceMirror
+import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
+import com.the1mason.geckonomy.infrastructure.i18n.toLegacyText
 import java.math.BigDecimal
 import java.math.RoundingMode
 
@@ -100,18 +102,19 @@ internal class PlaceholderResolver(
     private fun render(id: AccountId?, request: Request): String? {
         val currency = request.currency
         return when (request.variant) {
-            PlaceholderVariant.SYMBOL -> currency.symbol
-            PlaceholderVariant.NAME, PlaceholderVariant.NAME_SINGULAR -> currency.singular
-            PlaceholderVariant.NAME_PLURAL -> currency.plural
+            PlaceholderVariant.SYMBOL -> format.symbol(currency).toLegacyText()
+            PlaceholderVariant.NAME, PlaceholderVariant.NAME_SINGULAR ->
+                format.name(currency, NameRole.SINGULAR).toLegacyText()
+            PlaceholderVariant.NAME_PLURAL -> format.name(currency, NameRole.PLURAL).toLegacyText()
             PlaceholderVariant.DIGITS -> currency.fractionalDigits.toString()
 
             PlaceholderVariant.FORMAT ->
-                request.argument.toBigDecimalOrNull()?.let { format(Money(it, currency)) }
+                request.argument.toBigDecimalOrNull()?.let { format(Money(it, currency)).toLegacyText() }
 
             PlaceholderVariant.BALANCE, PlaceholderVariant.BALANCE_RAW ->
                 balance(id, currency)?.toPlainString() ?: fallback()
             PlaceholderVariant.BALANCE_FORMATTED ->
-                balance(id, currency)?.let { format(Money(it, currency)) } ?: fallback()
+                balance(id, currency)?.let { format(Money(it, currency)).toLegacyText() } ?: fallback()
             PlaceholderVariant.BALANCE_COMMAS ->
                 balance(id, currency)?.let { format.amount(Money(it, currency)) } ?: fallback()
             // DOWN, not the configured rounding mode: this is Vault's `_fixed` — the whole units a
@@ -119,14 +122,14 @@ internal class PlaceholderResolver(
             PlaceholderVariant.BALANCE_FIXED ->
                 balance(id, currency)?.setScale(0, RoundingMode.DOWN)?.toPlainString() ?: fallback()
             PlaceholderVariant.BALANCE_NAME ->
-                balance(id, currency)?.let(currency::nameFor) ?: fallback()
+                balance(id, currency)?.let { format.name(currency, it).toLegacyText() } ?: fallback()
 
             PlaceholderVariant.BALTOP_PLAYER ->
                 row(request) { it?.name }
             PlaceholderVariant.BALTOP_BALANCE ->
                 row(request) { it?.balance?.amount?.toPlainString() }
             PlaceholderVariant.BALTOP_BALANCE_FORMATTED ->
-                row(request) { it?.balance?.let(format::invoke) }
+                row(request) { it?.balance?.let { money -> format(money).toLegacyText() } }
             PlaceholderVariant.BALTOP_RANK ->
                 id?.let { baltop.rankOf(currency.code, it) }?.toString() ?: fallback()
         }

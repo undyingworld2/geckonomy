@@ -1,7 +1,6 @@
 package com.the1mason.geckonomy.infrastructure.i18n
 
 import com.the1mason.geckonomy.application.result.EconomyError
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import net.kyori.adventure.text.Component
 
 /**

@@ -57,3 +57,14 @@ error:
   player-not-found: "<prefix><red>No player named <white><target></white>.</red>"
   players-only: "<prefix><red>Only a player can run that. Name a player: <white><usage></white></red>"
   usage: "<prefix><red>Usage: <white><usage></white></red>"
+
+# Optional per-language currency name overrides (LOCALIZATION.md §2), keyed by the currency's code
+# from config.yml. Partial and optional: a missing currency, or a missing singular/plural within one,
+# falls back to config.yml. Not message keys — this block is not tracked by MessageKeyCoverageTest.
+currencies:
+  coins:
+    singular: "Coin"
+    plural: "Coins"
+  gems:
+    singular: "Gem"
+    plural: "Gems"

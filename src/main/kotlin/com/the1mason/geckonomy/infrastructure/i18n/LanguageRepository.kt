@@ -54,6 +54,16 @@ class LanguageRepository(
     private var layers: List<Map<String, String>> = listOf(bundled())
 
     /**
+     * `currencies.<code>` → its keys, from the **active** language file only (SPEC.md FR-L5).
+     *
+     * Deliberately not part of [layers]: a currency name override's fallback is `config.yml`, not the
+     * en.yml layer messages fall through to, so this never consults anything but [reload]'s own
+     * `languageCode` file. Swapped wholesale alongside [layers], for the same reason.
+     */
+    @Volatile
+    private var currencyOverrides: Map<String, Map<String, String>> = emptyMap()
+
+    /**
      * Keys already complained about.
      *
      * Warn-once, not warn-per-render: a missing key on `/balance` is one line the first time and a
@@ -88,6 +98,7 @@ class LanguageRepository(
             fileLayer(DEFAULT_LANGUAGE)?.let(::add)
             add(bundled())
         }
+        currencyOverrides = activeCurrencies(languageCode)
         warned.clear()
     }
 
@@ -100,6 +111,13 @@ class LanguageRepository(
      */
     fun template(key: MessageKey): String =
         layers.firstNotNullOfOrNull { it[key.path] } ?: missing(key)
+
+    /**
+     * `currencies.<code>.<key>` from the active language file, or null — meaning "fall back to
+     * `config.yml`" (SPEC.md FR-L5), not "fall back to English". `key` is whatever a lang file wrote
+     * under the currency (`singular`/`plural` today); consulted by `CurrencyNames`.
+     */
+    fun currencyOverride(code: String, key: String): String? = currencyOverrides[code]?.get(key)
 
     private fun missing(key: MessageKey): String {
         // add() answers false when the key was already there — so exactly one thread warns, once.
@@ -137,6 +155,34 @@ class LanguageRepository(
         }
     }
 
+    /**
+     * The active language's `currencies:` block, or empty if the file is absent or unusable.
+     *
+     * Silent on failure, unlike [fileLayer]: [reload] already reads and warns about this same file for
+     * the message layer in the same call, so a second warning here would be about one problem, not two.
+     */
+    private fun activeCurrencies(languageCode: String): Map<String, Map<String, String>> {
+        val file = path(languageCode)
+        if (!file.exists()) return emptyMap()
+        return runCatching { parseCurrencies(file.readText()) }.getOrElse { emptyMap() }
+    }
+
+    /**
+     * One level of nesting preserved, unlike [parse]: whatever keys a translator wrote under each
+     * currency code (`singular`/`plural` today — M11 adds `one`/`few`/`many`/`other` to the same
+     * block, so this does not change again, only its caller).
+     */
+    private fun parseCurrencies(text: String): Map<String, Map<String, String>> {
+        val yaml = YamlConfiguration()
+        yaml.loadFromString(text)
+        val section = yaml.getConfigurationSection(CURRENCIES_SECTION) ?: return emptyMap()
+        return section.getKeys(false).associateWith { code ->
+            section.getConfigurationSection(code)
+                ?.let { child -> child.getKeys(false).mapNotNull { key -> child.getString(key)?.let { key to it } }.toMap() }
+                ?: emptyMap()
+        }
+    }
+
     private fun path(code: String): Path = directory.resolve("$code.yml")
 
     /**
@@ -150,6 +196,10 @@ class LanguageRepository(
      * paths (`balance`, `error`), and Bukkit's `getString` answers for those with the *section's*
      * `toString()` — `MemorySection[path='balance'…]` — rather than null. Without the filter, every
      * section would become a bogus template that only surfaces if some key collides with it.
+     *
+     * `currencies.*` is excluded outright, not merely filtered as a section: unlike `balance`/`error`,
+     * its *leaves* (`currencies.coins.singular`) are themselves plain strings, so the section filter
+     * alone would let them through as bogus templates — [parseCurrencies] is what actually reads them.
      */
     private fun parse(text: String): Map<String, String> {
         val yaml = YamlConfiguration()
@@ -160,7 +210,12 @@ class LanguageRepository(
         }
         return yaml.getKeys(true)
             .filterNot(yaml::isConfigurationSection)
+            .filterNot { it == CURRENCIES_SECTION || it.startsWith("$CURRENCIES_SECTION.") }
             .mapNotNull { path -> yaml.getString(path)?.let { path to it } }
             .toMap()
+    }
+
+    private companion object {
+        const val CURRENCIES_SECTION = "currencies"
     }
 }

@@ -1,13 +1,14 @@
 package com.the1mason.geckonomy.infrastructure.i18n
 
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.domain.TestCurrencies
 import com.the1mason.geckonomy.domain.coins
 import com.the1mason.geckonomy.domain.gems
+import com.the1mason.geckonomy.domain.model.Money
 import net.kyori.adventure.text.format.NamedTextColor
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
 import java.math.BigDecimal
 import java.util.Locale
@@ -21,7 +22,7 @@ import java.util.Locale
 class MiniMessageRendererTest {
 
     private val renderer = MiniMessageRenderer()
-    private val format = FormatMoney { Locale.US }
+    private val format = FormatMoney({ Locale.US }, CurrencyNames { _, _ -> null })
 
     private fun plain(template: String, resolvers: TagResolver = TagResolver.empty()): String =
         PlainTextComponentSerializer.plainText().serialize(renderer.render(template, resolvers))
@@ -70,28 +71,37 @@ class MiniMessageRendererTest {
     }
 
     @Test
-    fun `does not parse markup coming from a currency symbol`() {
-        // The symbol is config-authored, not template-authored: a symbol of <rainbow> would otherwise
-        // colour the rest of the message from inside a value.
-        val sneaky = TestCurrencies.COINS.copy(symbol = "<rainbow>")
-        val money = com.the1mason.geckonomy.domain.model.Money(BigDecimal("5.00"), sneaky)
+    fun `parses a styled currency symbol, and does not bleed its style onto what follows`() {
+        // A currency's symbol is now owner-authored MiniMessage, rendered as a self-contained
+        // component (SPEC.md FR-L4): styled markup parses, and — because it is inserted as an
+        // already-finished component rather than spliced text — its style cannot leak into the
+        // amount that follows, even though nothing in the outer template resets it.
+        val styled = TestCurrencies.COINS.copy(symbol = "<gold>$</gold>", format = "<symbol><amount>")
+        val money = Money(BigDecimal("5.00"), styled)
 
-        assertEquals("<rainbow>5.00", plain("<formatted>", Placeholders.money("formatted", money, format)))
+        val component = format(money)
+
+        assertEquals("$5.00", PlainTextComponentSerializer.plainText().serialize(component))
+        val amountChild = component.children().last()
+        assertNotEquals(NamedTextColor.GOLD, amountChild.style().color())
     }
 
     @Test
     fun `names a currency in the plural by default`() {
-        assertEquals("Top balances (Gems)", plain("Top balances (<currency>)", Placeholders.currency(TestCurrencies.GEMS)))
+        assertEquals(
+            "Top balances (Gems)",
+            plain("Top balances (<currency>)", Placeholders.currency(TestCurrencies.GEMS, format)),
+        )
     }
 
     @Test
     fun `names a currency in the singular for exactly one`() {
-        assertEquals("1 Gem", plain("1 <currency>", Placeholders.currency(TestCurrencies.GEMS, BigDecimal.ONE)))
+        assertEquals("1 Gem", plain("1 <currency>", Placeholders.currency(TestCurrencies.GEMS, format, BigDecimal.ONE)))
     }
 
     @Test
     fun `fills the currency symbol`() {
-        assertEquals("$", plain("<symbol>", Placeholders.currency(TestCurrencies.COINS)))
+        assertEquals("$", plain("<symbol>", Placeholders.currency(TestCurrencies.COINS, format)))
     }
 
     @Test

@@ -11,7 +11,6 @@ import com.the1mason.geckonomy.application.usecase.CreateAccount
 import com.the1mason.geckonomy.application.usecase.DeleteAccount
 import com.the1mason.geckonomy.application.usecase.Deposit
 import com.the1mason.geckonomy.application.usecase.FindAccountName
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.application.usecase.GetBalance
 import com.the1mason.geckonomy.application.usecase.Has
 import com.the1mason.geckonomy.application.usecase.ListAccountNames
@@ -31,7 +30,10 @@ import com.the1mason.geckonomy.infrastructure.config.ConfigCurrencyRegistry
 import com.the1mason.geckonomy.infrastructure.config.PoolConfig
 import com.the1mason.geckonomy.infrastructure.config.StorageConfig
 import com.the1mason.geckonomy.infrastructure.config.StorageType
+import com.the1mason.geckonomy.infrastructure.i18n.CurrencyNames
+import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
 import kotlinx.coroutines.runBlocking
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -109,7 +111,8 @@ class EconomyServiceSqliteTest {
         val balance = (service.balance(alice) as Outcome.Success).value
 
         assertEquals(BigDecimal("100.00"), balance.amount)
-        assertEquals("$100.00", service.format(balance))
+        val format = FormatMoney({ java.util.Locale.US }, CurrencyNames { _, _ -> null })
+        assertEquals("$100.00", PlainTextComponentSerializer.plainText().serialize(format(balance)))
     }
 
     @Test
@@ -309,7 +312,6 @@ class EconomyServiceSqliteTest {
             renameAccount = RenameAccount(harness.accounts, guard),
             deleteAccount = DeleteAccount(harness.unitOfWork, { keepHistory }, guard),
             listCurrencies = ListCurrencies(currencies),
-            formatMoney = FormatMoney { java.util.Locale.US },
             currencies = currencies,
         )
     }

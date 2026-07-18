@@ -2,12 +2,12 @@ package com.the1mason.geckonomy.infrastructure.bukkit.command
 
 import com.the1mason.geckonomy.application.result.Outcome
 import com.the1mason.geckonomy.application.service.EconomyService
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.domain.model.AccountId
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.infrastructure.bukkit.CurrencyAccess
 import com.the1mason.geckonomy.infrastructure.bukkit.CurrencyAccess.Action
 import com.the1mason.geckonomy.infrastructure.bukkit.PlayerTargets
+import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
 import com.the1mason.geckonomy.infrastructure.i18n.MessageKey
 import com.the1mason.geckonomy.infrastructure.i18n.Placeholders
 import org.bukkit.command.CommandSender
@@ -46,7 +46,7 @@ internal class BalanceCommand(
             return
         }
         access.refusal(sender, Action.BALANCE, currency)?.let { refusal ->
-            replies.send(sender, refusal, Placeholders.currency(currency))
+            replies.send(sender, refusal, Placeholders.currency(currency, format))
             return
         }
         when (val result = economy.balance(AccountId(sender.uniqueId), currency.code)) {
@@ -55,7 +55,7 @@ internal class BalanceCommand(
                 MessageKey.BALANCE_SELF,
                 Placeholders.of(
                     Placeholders.money("formatted", result.value, format),
-                    Placeholders.currency(currency, result.value.amount),
+                    Placeholders.currency(currency, format, result.value.amount),
                 ),
             )
             is Outcome.Failure -> replies.sendError(sender, result.error, sender.name)
@@ -71,7 +71,7 @@ internal class BalanceCommand(
      */
     private suspend fun other(sender: CommandSender, currency: Currency, target: String, quick: AccountId?) {
         access.refusal(sender, Action.BALANCE_OTHERS, currency)?.let { refusal ->
-            replies.send(sender, refusal, Placeholders.currency(currency))
+            replies.send(sender, refusal, Placeholders.currency(currency, format))
             return
         }
         val id = quick ?: targets.resolve(target)
@@ -86,7 +86,7 @@ internal class BalanceCommand(
                 Placeholders.of(
                     Placeholders.text("target", target),
                     Placeholders.money("formatted", result.value, format),
-                    Placeholders.currency(currency, result.value.amount),
+                    Placeholders.currency(currency, format, result.value.amount),
                 ),
             )
             is Outcome.Failure -> replies.sendError(sender, result.error, target)

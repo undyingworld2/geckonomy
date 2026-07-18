@@ -2,7 +2,6 @@ package com.the1mason.geckonomy.infrastructure.bukkit.command
 
 import com.the1mason.geckonomy.application.result.Outcome
 import com.the1mason.geckonomy.application.service.EconomyService
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.domain.model.AccountId
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.domain.model.Money
@@ -10,6 +9,7 @@ import com.the1mason.geckonomy.infrastructure.bukkit.CurrencyAccess
 import com.the1mason.geckonomy.infrastructure.bukkit.CurrencyAccess.Action
 import com.the1mason.geckonomy.infrastructure.bukkit.MainThread
 import com.the1mason.geckonomy.infrastructure.bukkit.PlayerTargets
+import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
 import com.the1mason.geckonomy.infrastructure.i18n.MessageKey
 import com.the1mason.geckonomy.infrastructure.i18n.MessageService
 import com.the1mason.geckonomy.infrastructure.i18n.Placeholders
@@ -47,7 +47,7 @@ internal class PayCommand(
             return
         }
         access.refusal(sender, Action.PAY, currency)?.let { refusal ->
-            replies.send(sender, refusal, Placeholders.currency(currency))
+            replies.send(sender, refusal, Placeholders.currency(currency, format))
             return
         }
         val payee = quick ?: targets.resolve(target)
@@ -73,7 +73,7 @@ internal class PayCommand(
                     Placeholders.of(
                         Placeholders.text("target", target),
                         Placeholders.money("formatted", Money(amount, currency), format),
-                        Placeholders.currency(currency, amount),
+                        Placeholders.currency(currency, format, amount),
                     ),
                 )
                 notifyPayee(payee, sender.name, Money(amount, currency))
@@ -97,7 +97,7 @@ internal class PayCommand(
                     Placeholders.of(
                         Placeholders.text("sender", from),
                         Placeholders.money("formatted", paid, format),
-                        Placeholders.currency(paid.currency, paid.amount),
+                        Placeholders.currency(paid.currency, format, paid.amount),
                     ),
                 )
             }

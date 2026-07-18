@@ -1,6 +1,5 @@
 package com.the1mason.geckonomy.infrastructure.i18n
 
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.domain.coins
 import net.kyori.adventure.audience.Audience
 import net.kyori.adventure.text.Component
@@ -26,7 +25,7 @@ class MessageServiceTest {
     lateinit var directory: Path
 
     private val log = LogCapture()
-    private val format = FormatMoney { Locale.US }
+    private val format = FormatMoney({ Locale.US }, CurrencyNames { _, _ -> null })
 
     private fun service(language: String = "en") =
         MessageService(LanguageRepository(directory, log.logger), { language }).apply { reload() }

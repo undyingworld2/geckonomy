@@ -1,6 +1,9 @@
 package com.the1mason.geckonomy.infrastructure.placeholder
 
+import com.the1mason.geckonomy.application.EconomyFixture
+import com.the1mason.geckonomy.domain.TestCurrencies
 import com.the1mason.geckonomy.domain.model.CurrencyCode
+import com.the1mason.geckonomy.infrastructure.config.ConfigCurrencyRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -135,5 +138,18 @@ class PlaceholderResolverTest {
 
         assertEquals("0", f.resolve("balance", id = null))
         assertEquals("0", f.resolve("baltop_rank", id = null))
+    }
+
+    // ── Styled display (SPEC.md FR-L4/FR-L5) ─────────────────────────────
+
+    @Test
+    fun `a styled symbol returns legacy-serialized text, not the raw MiniMessage tag`() {
+        val styled = TestCurrencies.COINS.copy(symbol = "<red>$</red>")
+        val economy = EconomyFixture(currencies = ConfigCurrencyRegistry(listOf(styled, TestCurrencies.GEMS)))
+        val f = PlaceholderFixture(economy = economy, scope = scope)
+
+        val symbol = f.resolve("symbol")
+
+        assertEquals("§c$", symbol)
     }
 }

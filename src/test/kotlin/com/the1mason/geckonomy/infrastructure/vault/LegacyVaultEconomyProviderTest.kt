@@ -3,10 +3,11 @@ package com.the1mason.geckonomy.infrastructure.vault
 import com.the1mason.geckonomy.application.EconomyFixture
 import com.the1mason.geckonomy.application.EconomyFixture.Companion.ALICE
 import com.the1mason.geckonomy.application.EconomyFixture.Companion.BOB
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.domain.policy.RoundingPolicy
 import com.the1mason.geckonomy.infrastructure.balance.OnlineBalanceMirror
 import com.the1mason.geckonomy.infrastructure.config.StorageType
+import com.the1mason.geckonomy.infrastructure.i18n.CurrencyNames
+import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
 import com.the1mason.geckonomy.infrastructure.i18n.LanguageRepository
 import com.the1mason.geckonomy.infrastructure.i18n.LogCapture
 import com.the1mason.geckonomy.infrastructure.i18n.MessageService
@@ -47,20 +48,22 @@ class LegacyVaultEconomyProviderTest {
     private val alice = OfflinePlayerMock(ALICE.value, "Alice")
     private val bob = OfflinePlayerMock(BOB.value, "Bob")
 
+    private val format = FormatMoney({ Locale.US }, CurrencyNames { _, _ -> null })
+
     private val provider by lazy {
         val responses = ResponseMapper(
             MessageService(LanguageRepository(directory, log.logger), { "en" }).apply { reload() },
-            FormatMoney { Locale.US },
+            format,
         )
         val sync = VaultSyncPath(fixture.service, mirror, scope, StorageType.SQLITE, log.logger)
         LegacyVaultEconomyProvider(
             enabled = { true },
-            economy = fixture.service,
             currencies = fixture.currencies,
             sync = sync,
             responses = LegacyResponseMapper(responses),
             players = PlayerResolver(server, sync),
             rounding = { RoundingPolicy() },
+            formatMoney = format,
         )
     }
 
