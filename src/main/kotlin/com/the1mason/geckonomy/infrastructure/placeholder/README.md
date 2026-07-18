@@ -26,3 +26,8 @@ are a raw data surface, not a privacy boundary.
 Longest keyword wins, then exactly one token is the argument (arguments cannot contain `_`; codes
 can), then the rest is the code. A currency coded as a keyword is shadowed but still reachable via
 the explicit spelling — `%geckonomy_balance_raw_formatted%`. See `PlaceholderResolver`'s KDoc.
+
+**Styled values legacy-serialize** (M10). `symbol`/name/formatted-balance placeholders go through
+`infrastructure.i18n.FormatMoney` — the same renderer commands use — then
+`Component.toLegacyText()`, since PAPI returns `String`. A `<gradient>` symbol degrades to the nearest
+legacy colour code; that is PAPI's own limit, not something to fix here.

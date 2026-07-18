@@ -2,12 +2,14 @@ package com.the1mason.geckonomy.infrastructure.vault
 
 import com.the1mason.geckonomy.application.Attribution
 import com.the1mason.geckonomy.application.result.Outcome
-import com.the1mason.geckonomy.application.service.EconomyService
 import com.the1mason.geckonomy.domain.model.AccountId
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.domain.model.CurrencyCode
 import com.the1mason.geckonomy.domain.model.Money
+import com.the1mason.geckonomy.domain.model.NameRole
 import com.the1mason.geckonomy.domain.port.CurrencyRegistry
+import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
+import com.the1mason.geckonomy.infrastructure.i18n.toLegacyText
 import net.milkbowl.vault2.economy.AccountPermission
 import net.milkbowl.vault2.economy.AsyncEconomy
 import net.milkbowl.vault2.economy.Economy
@@ -30,11 +32,11 @@ import java.util.logging.Logger
  */
 internal class VaultUnlockedEconomyProvider(
     private val enabled: () -> Boolean,
-    private val economy: EconomyService,
     private val currencies: CurrencyRegistry,
     private val sync: VaultSyncPath,
     private val responses: ResponseMapper,
     private val asyncEconomy: GeckonomyAsyncEconomy,
+    private val formatMoney: FormatMoney,
     private val logger: Logger,
 ) : Economy {
 
@@ -77,9 +79,11 @@ internal class VaultUnlockedEconomyProvider(
 
     override fun getDefaultCurrency(pluginName: String): String = currencies.default().code.value
 
-    override fun defaultCurrencyNamePlural(pluginName: String): String = currencies.default().plural
+    override fun defaultCurrencyNamePlural(pluginName: String): String =
+        formatMoney.name(currencies.default(), NameRole.PLURAL).toLegacyText()
 
-    override fun defaultCurrencyNameSingular(pluginName: String): String = currencies.default().singular
+    override fun defaultCurrencyNameSingular(pluginName: String): String =
+        formatMoney.name(currencies.default(), NameRole.SINGULAR).toLegacyText()
 
     override fun currencies(): Collection<String> = currencies.all().map { it.code.value }
 
@@ -283,7 +287,8 @@ internal class VaultUnlockedEconomyProvider(
     private fun balanceOf(accountID: UUID, currency: Currency): BigDecimal =
         sync.balance(AccountId(accountID), currency)
 
-    private fun format(amount: BigDecimal, currency: Currency): String = economy.format(Money(amount, currency))
+    private fun format(amount: BigDecimal, currency: Currency): String =
+        formatMoney(Money(amount, currency)).toLegacyText()
 
     /** Untrusted: a caller may pass anything, so a malformed code is a `null`, never an exception. */
     private fun resolve(currency: String): Currency? =

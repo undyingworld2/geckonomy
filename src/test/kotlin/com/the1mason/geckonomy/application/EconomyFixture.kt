@@ -9,7 +9,6 @@ import com.the1mason.geckonomy.application.usecase.CreateAccount
 import com.the1mason.geckonomy.application.usecase.DeleteAccount
 import com.the1mason.geckonomy.application.usecase.Deposit
 import com.the1mason.geckonomy.application.usecase.FindAccountName
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.application.usecase.GetBalance
 import com.the1mason.geckonomy.application.usecase.Has
 import com.the1mason.geckonomy.application.usecase.ListAccountNames
@@ -30,6 +29,8 @@ import com.the1mason.geckonomy.domain.policy.OverdraftPolicy
 import com.the1mason.geckonomy.domain.policy.RoundingPolicy
 import com.the1mason.geckonomy.domain.port.CurrencyRegistry
 import com.the1mason.geckonomy.infrastructure.config.ConfigCurrencyRegistry
+import com.the1mason.geckonomy.infrastructure.i18n.CurrencyNames
+import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -79,8 +80,11 @@ internal class EconomyFixture(
     /** `keep-transaction-history`, flippable mid-test to prove the setting is read per call. */
     var keepHistory = true
 
+    /** No lang override in these fixtures — every name comes from [TestCurrencies]' config values. */
+    val names = CurrencyNames { _, _ -> null }
+
     /** Exposed as well as injected, the way the composition root exposes it: renderers need the same one. */
-    val format = FormatMoney { Locale.US }
+    val format = FormatMoney({ Locale.US }, names)
 
     /**
      * A real [EconomyService] over the fakes, assembled the way `Geckonomy.onEnable` assembles it.
@@ -106,7 +110,6 @@ internal class EconomyFixture(
             renameAccount = RenameAccount(accounts, guard),
             deleteAccount = DeleteAccount(unitOfWork, { keepHistory }, guard),
             listCurrencies = ListCurrencies(currencies),
-            formatMoney = format,
             currencies = currencies,
         )
     }

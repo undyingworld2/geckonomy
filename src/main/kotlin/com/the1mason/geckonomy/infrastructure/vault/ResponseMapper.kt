@@ -4,7 +4,7 @@ import com.the1mason.geckonomy.application.result.EconomyError
 import com.the1mason.geckonomy.application.result.OperationResult
 import com.the1mason.geckonomy.application.result.Outcome
 import com.the1mason.geckonomy.application.result.TransferResult
-import com.the1mason.geckonomy.application.usecase.FormatMoney
+import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
 import com.the1mason.geckonomy.domain.model.AccountId
 import com.the1mason.geckonomy.infrastructure.i18n.ErrorMessages
 import com.the1mason.geckonomy.infrastructure.i18n.MessageKey

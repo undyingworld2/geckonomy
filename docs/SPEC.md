@@ -32,6 +32,11 @@ Geckonomy without knowing its storage or internals.
 - **PlaceholderAPI expansion** — specified in §4.7, built at **M9**. Read-only: it exposes what the
   economy already knows, and adds no way to change a balance. Never queries the database on the
   calling thread (FR-P7).
+- **Styled & localizable currency names** — specified in §4.6 (FR-L4, FR-L5), built at **M10**.
+  Currency `symbol`/`singular`/`plural` and the `format` template accept MiniMessage; language files
+  may override a currency's names per code.
+- **Globalization** — specified in §4.6 (FR-L6, FR-L7), built at **M11**. Locale-correct plural
+  categories (CLDR/ICU4J) for currency names, per-locale number formatting, and per-player language.
 
 ## 2. Glossary
 
@@ -111,8 +116,25 @@ Geckonomy without knowing its storage or internals.
 
 ### 4.6 Localization
 - FR-L1 All player-facing text comes from language files (no hard-coded strings).
-- FR-L2 Messages are authored in MiniMessage and support placeholders.
+- FR-L2 Messages are authored in MiniMessage and support placeholders. Owner-authored markup is
+  parsed; player-supplied text is inserted unparsed (the styled-component nuance for currency-owned
+  values is defined in FR-L4).
 - FR-L3 Server language is selectable in config; missing keys fall back to the default language.
+- FR-L4 (M10) Currency `symbol`, `singular`, `plural` and the `format` template may contain
+  MiniMessage markup. Each is rendered to a **self-contained** `Component` (e.g. a `<gradient>` symbol
+  styles only the symbol and cannot colour the rest of the message). Owner-authored config/lang markup
+  is parsed; **player-supplied** text (names, amounts) stays unparsed (FR-L2 invariant preserved).
+- FR-L5 (M10) A language file may override a currency's `singular`/`plural`, keyed by currency code
+  (`currencies.<code>.singular|plural`). The lang value wins when present; `config.yml` is the
+  fallback and covers currencies the file omits. Applies on `/geckonomy reload`.
+- FR-L6 (M11) Currency-name selection uses the **CLDR plural category** for the amount in the effective
+  locale (`one`/`two`/`few`/`many`/`other`, via ICU4J `PluralRules`), not a binary singular/plural —
+  this **supersedes** the binary rule described in FR-C3 and `Currency.nameFor`. Lang files may supply
+  a form per category; `singular`/`plural` remain valid and map to `one`/`other`, so M10 files keep
+  working. English uses `one`/`other`; Russian selects `one`/`few`/`many`.
+- FR-L7 (M11) **Per-player language.** A player sees messages, currency names, and number formatting in
+  their own locale when available; `settings.language` is the server-wide default and the fallback.
+  `MessageService` already carries the `locale` param this needs (LOCALIZATION.md §5).
 
 ### 4.7 Placeholders (M9)
 
@@ -195,6 +217,10 @@ economy already knows and adds no way to change a balance. Full placeholder tabl
 | Legacy Vault (v1) `Economy` provider | ✅ v1 | Register the *original* `net.milkbowl.vault.economy.Economy` (bundled in VaultUnlockedAPI) alongside v2, for the many plugins still bound to it. Single-currency → default currency. |
 | Legacy Vault (v1) bank methods | ❌ | `hasBankSupport()=false`; bank methods return `NOT_IMPLEMENTED` (banks deferred; distinct from VaultUnlocked shared accounts) |
 | PlaceholderAPI expansion | ✅ v1 | Identifier `geckonomy`; soft dependency; read-only; never queries the database on the calling thread (§4.7) |
+| Styled currency display (MiniMessage) | ✅ M10 | `symbol`/names/`format` parsed as self-contained components; player input unparsed (§4.6 FR-L4) |
+| Localizable currency names (lang files) | ✅ M10 | `currencies.<code>` in lang files override config names (§4.6 FR-L5) |
+| CLDR pluralization (ICU4J) | ✅ M11 | Plural categories per locale; correct Russian etc. (§4.6 FR-L6) |
+| Per-player language | ✅ M11 | Was reserved; promoted at M11 (§4.6 FR-L7) |
 
 ## 7. Commands & permissions
 
@@ -232,11 +258,16 @@ admin `op`.
 ## 9. Reserved features (post-v1)
 
 Shared/bank accounts + `AccountPermission` (incl. legacy v1 bank methods); cross-server live sync
-(Redis); per-world economies; per-player language; transaction-history command; importers. Schema and
-interfaces are shaped so these land without breaking v1 contracts.
+(Redis); per-world economies; transaction-history command; importers. Schema and interfaces are shaped
+so these land without breaking v1 contracts.
 
 _(The **PlaceholderAPI expansion** has left this list: it is specified in §4.7 and scheduled as **M9**
 — `tasks/M9-placeholders.md`. It is still post-v1, but it is no longer merely reserved.)_
+
+_(**Styled & localizable currency names** (§4.6 FR-L4/L5, **M10** — `tasks/M10-currency-display.md`)
+and **globalization** — CLDR pluralization and per-player language (§4.6 FR-L6/L7, **M11** —
+`tasks/M11-globalization.md`) — are likewise planned post-v1 milestones. **Per-player language** has
+left this reserved list: it is specified in §4.6 (FR-L7) and scheduled at M11.)_
 
 _(Note: the legacy v1 `Economy` **player** API ships in v1 — see §6 capability matrix and FR-V6 — only
 its bank methods are deferred with shared accounts.)_

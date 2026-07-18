@@ -6,7 +6,6 @@ import com.the1mason.geckonomy.application.EconomyFixture.Companion.ALICE
 import com.the1mason.geckonomy.application.EconomyFixture.Companion.BOB
 import com.the1mason.geckonomy.application.result.Outcome
 import com.the1mason.geckonomy.domain.TestCurrencies
-import com.the1mason.geckonomy.domain.model.Money
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -69,11 +68,6 @@ class EconomyServiceTest {
     @Test
     fun `lists every currency`() {
         assertEquals(listOf(TestCurrencies.COINS, TestCurrencies.GEMS), service.currencies())
-    }
-
-    @Test
-    fun `formats money`() {
-        assertEquals("$5.00", service.format(Money(BigDecimal("5.00"), TestCurrencies.COINS)))
     }
 
     @Test

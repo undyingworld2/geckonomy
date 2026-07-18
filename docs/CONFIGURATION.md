@@ -99,8 +99,8 @@ placeholders:
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `code` | string | — | Unique, lowercase, `[a-z0-9_-]`. |
-| `singular` / `plural` | string | — | Display names. |
-| `symbol` | string | — | Currency symbol. |
+| `singular` / `plural` | string | — | Display names. **MiniMessage** (M10); rendered as a self-contained component, so styling never bleeds into the rest of a message. Overridable per language via `currencies.<code>` in a lang file — see `LOCALIZATION.md §2/§4`. |
+| `symbol` | string | — | Currency symbol. **MiniMessage** (M10), same self-contained rendering as `singular`/`plural`. |
 | `fractional-digits` | int 0–4 | — | Decimal places; `0` = whole units. Capped at the stored scale of 4 (DATA_MODEL.md §3). |
 | `starting-balance` | decimal | 0 | Seeded on account creation. Rounded to `fractional-digits` at load. |
 | `default` | bool | — | Exactly one `true` across the list. |
@@ -108,7 +108,7 @@ placeholders:
 | `transferable` | bool | `true` | If `false`, `/pay` is refused for this currency regardless of permissions. |
 | `balance-check-others` | bool | `true` | If `false`, players can't view others' balance in this currency (own balance still visible). |
 | `show-in-baltop` | bool | `true` | If `false`, excluded from `/baltop`. |
-| `format` | string | `<symbol><amount>` | Display template; placeholders `<symbol>`, `<amount>`, `<currency>`. |
+| `format` | string | `<symbol><amount>` | Display template; placeholders `<symbol>`, `<amount>`, `<currency>`. **MiniMessage** (M10): the template itself, plus `<symbol>`/`<currency>`, are rendered as MiniMessage — see `LOCALIZATION.md §4`. |
 
 ### `settings`
 | Key | Type | Default | Notes |

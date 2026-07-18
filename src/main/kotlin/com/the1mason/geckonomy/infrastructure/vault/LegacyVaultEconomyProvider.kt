@@ -3,11 +3,13 @@ package com.the1mason.geckonomy.infrastructure.vault
 import com.the1mason.geckonomy.application.Attribution
 import com.the1mason.geckonomy.application.result.OperationResult
 import com.the1mason.geckonomy.application.result.Outcome
-import com.the1mason.geckonomy.application.service.EconomyService
 import com.the1mason.geckonomy.domain.model.AccountId
 import com.the1mason.geckonomy.domain.model.Money
+import com.the1mason.geckonomy.domain.model.NameRole
 import com.the1mason.geckonomy.domain.policy.RoundingPolicy
 import com.the1mason.geckonomy.domain.port.CurrencyRegistry
+import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
+import com.the1mason.geckonomy.infrastructure.i18n.toLegacyText
 import net.milkbowl.vault.economy.Economy
 import net.milkbowl.vault.economy.EconomyResponse
 import org.bukkit.OfflinePlayer
@@ -28,12 +30,12 @@ import java.math.BigDecimal
 @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
 internal class LegacyVaultEconomyProvider(
     private val enabled: () -> Boolean,
-    private val economy: EconomyService,
     private val currencies: CurrencyRegistry,
     private val sync: VaultSyncPath,
     private val responses: LegacyResponseMapper,
     private val players: PlayerResolver,
     private val rounding: () -> RoundingPolicy,
+    private val formatMoney: FormatMoney,
 ) : Economy {
 
     // ── Capabilities ────────────────────────────────────────────────────
@@ -47,11 +49,14 @@ internal class LegacyVaultEconomyProvider(
 
     override fun fractionalDigits(): Int = currencies.default().fractionalDigits
 
-    override fun format(amount: Double): String = economy.format(Money(amount.toAmount(), currencies.default()))
+    override fun format(amount: Double): String =
+        formatMoney(Money(amount.toAmount(), currencies.default())).toLegacyText()
 
-    override fun currencyNamePlural(): String = currencies.default().plural
+    override fun currencyNamePlural(): String =
+        formatMoney.name(currencies.default(), NameRole.PLURAL).toLegacyText()
 
-    override fun currencyNameSingular(): String = currencies.default().singular
+    override fun currencyNameSingular(): String =
+        formatMoney.name(currencies.default(), NameRole.SINGULAR).toLegacyText()
 
     // ── Accounts ────────────────────────────────────────────────────────
 

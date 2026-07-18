@@ -262,6 +262,60 @@ leaderboard (name/balance at rank, own rank).
   `runBlocking`: nothing in `onRequest` can reach JDBC on the calling thread by construction. Still
   worth a client-driven pass before calling the invariant proven, which is the one thing left.
 
+### M10 — Styled & localizable currency display  ·  `tasks/M10-currency-display.md`  ✅
+- Currency `symbol`/`singular`/`plural` and the `format` template rendered as **self-contained
+  MiniMessage components** (SPEC §4.6 FR-L4); player input stays unparsed.
+- `FormatMoney` and `Placeholders.currency` return/insert Components via `Placeholder.component`
+  instead of unparsed strings; PAPI expansion serializes to legacy text.
+- Lang-file currency-name overrides: `currencies.<code>.singular|plural`, config as fallback
+  (FR-L5). New `CurrencyNames` resolver in `infrastructure/i18n` consulted by `FormatMoney` and
+  `Placeholders`, so the "one rule" property survives (LOCALIZATION.md §4).
+- Docs: `LOCALIZATION.md §3/§4`, `CONFIGURATION.md §2`, shipped `config.yml`, `lang/en.yml` +
+  `lang/ru.yml`.
+- **Depends on:** M5, M7, M9
+- **Done when:** a `<gradient>`-styled symbol renders in `/balance`, `/pay`, `/baltop` and
+  placeholders without bleeding; player input cannot inject MiniMessage; a `currencies:` block in
+  `ru.yml` overrides names live on `/geckonomy reload`; PAPI returns styled names as legacy text.
+- **Done:** 725 tests green (712 at M9, plus 13 for `CurrencyNames`/the `currencies:` override and a
+  styled-symbol PAPI case). `FormatMoney` **relocated from `application.usecase` to
+  `infrastructure.i18n`**, not merely edited: once it renders a `Component` it holds a framework type,
+  which `application` may not import (CODING_STANDARDS.md §2) — `application/README.md` had said as
+  much about why it returned a `String`. `EconomyService` lost its `format` method entirely rather than
+  keep a hollowed-out passthrough; every consumer (commands, both Vault providers, PlaceholderAPI) now
+  holds the same `FormatMoney` instance directly, which is what makes FR-P5's "one formatter" property
+  hold structurally rather than by convention. The relocation moved a wiring dependency, too: `Economy`
+  (which builds `FormatMoney`) now needs `CurrencyNames`, which needs the `LanguageRepository`
+  `loadMessages` builds — so `onEnable` had to build the language repository *before* `Economy`, a
+  reversal of M4's original order.
+
+  **`MessageKeyCoverageTest` caught a bug in its own twin.** `LanguageRepository.parse()`'s section
+  filter drops `getKeys(true)`'s intermediate paths (`currencies`, `currencies.coins`) but not their
+  *leaves* — `currencies.coins.singular` is a plain string, not a section, so it survived the filter
+  and read as an orphan message key the moment `lang/en.yml` grew a `currencies:` block. The coverage
+  test's own bundled-map builder duplicates that same flattening (and had since M5), so both needed the
+  identical fix: exclude the `currencies` subtree outright, not just its section markers. Caught by the
+  test suite, not review — the exact case `MessageKeyCoverageTest` exists for.
+
+  Vault's `currencyNameSingular()`/`currencyNamePlural()` (both interfaces) previously read
+  `currency.singular`/`.plural` straight off the config object, bypassing any lang override — a latent
+  inconsistency nobody had reason to notice before there was an override to disagree with. Routing them
+  through `CurrencyNames` fixed it as a side effect of the relocation, not a separate task.
+
+### M11 — Globalization  ·  `tasks/M11-globalization.md`
+- CLDR plural categories via **ICU4J `PluralRules`**: `Currency.nameFor` generalizes from binary
+  singular/plural to a category selected by amount + locale (SPEC §4.6 FR-L6).
+- Lang files gain per-category name forms (`one`/`few`/`many`/`other`…), additive over M10's
+  `singular`/`plural` (which map to `one`/`other`).
+- **Per-player language** (FR-L7): resolve an effective locale per audience; number grouping and
+  messages follow it; `settings.language` is the default. Wire the `MessageService.locale` param that
+  has been reserved since M5.
+- ICU4J added as a library (GeckonomyLoader entry, CODING_STANDARDS §8) — verify it loads under the
+  plugin's isolated classloader (M8 classloader lesson) and that its bundled locale data resolves.
+- **Depends on:** M10
+- **Done when:** `ru` renders "1 рубль / 2 рубля / 5 рублей / 1.5 рубля" correctly; English "1 Coin /
+  5 Coins" via one/other; a Russian-client player sees Russian while others see the server default;
+  number grouping matches the effective locale; the plugin enables with ICU4J isolated.
+
 ---
 
 ## Future (post-v1)
@@ -273,7 +327,6 @@ Schema and interfaces are already shaped for these:
   one call stale. (Per-server scope + the `@global` keying already ship in v1; this milestone adds only
   the live propagation.)
 - **Per-world economies** (new coordinate on repositories).
-- **Per-player language** (`MessageService` already takes a locale).
 - **Legacy Vault (v1) bank methods** — implement `createBank`/`bankDeposit`… once shared/bank accounts
   ship (the legacy *player* API already ships in v1's M6).
 - **`/geckonomy seed`** — backfill balance rows for a currency added to config after accounts already

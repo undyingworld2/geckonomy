@@ -3,11 +3,11 @@ package com.the1mason.geckonomy.infrastructure.bukkit.command
 import com.the1mason.geckonomy.application.result.OperationResult
 import com.the1mason.geckonomy.application.result.Outcome
 import com.the1mason.geckonomy.application.service.EconomyService
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.domain.model.AccountId
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.domain.model.Money
 import com.the1mason.geckonomy.infrastructure.bukkit.PlayerTargets
+import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
 import com.the1mason.geckonomy.infrastructure.i18n.MessageKey
 import com.the1mason.geckonomy.infrastructure.i18n.Placeholders
 import org.bukkit.command.CommandSender
@@ -80,7 +80,7 @@ internal class EcoCommand(
                     // Supplied whichever <formatted> means, so a translator can use both
                     // (LOCALIZATION.md §3) — `<balance>` is always the balance after the change.
                     Placeholders.money("balance", result.value, format),
-                    Placeholders.currency(currency, moved),
+                    Placeholders.currency(currency, format, moved),
                 ),
             )
             is Outcome.Failure -> replies.sendError(sender, result.error, target)

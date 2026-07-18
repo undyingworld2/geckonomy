@@ -3,10 +3,11 @@ package com.the1mason.geckonomy.infrastructure.vault
 import com.the1mason.geckonomy.application.EconomyFixture.Companion.ALICE
 import com.the1mason.geckonomy.application.result.EconomyError
 import com.the1mason.geckonomy.application.result.Outcome
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.domain.TestCurrencies
 import com.the1mason.geckonomy.domain.coins
 import com.the1mason.geckonomy.domain.policy.RoundingPolicy
+import com.the1mason.geckonomy.infrastructure.i18n.CurrencyNames
+import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
 import com.the1mason.geckonomy.infrastructure.i18n.LanguageRepository
 import com.the1mason.geckonomy.infrastructure.i18n.LogCapture
 import com.the1mason.geckonomy.infrastructure.i18n.MessageService
@@ -33,7 +34,7 @@ class LegacyResponseMapperTest {
         LegacyResponseMapper(
             ResponseMapper(
                 MessageService(LanguageRepository(directory, log.logger), { "en" }).apply { reload() },
-                FormatMoney { Locale.US },
+                FormatMoney({ Locale.US }, CurrencyNames { _, _ -> null }),
             ),
         )
     }

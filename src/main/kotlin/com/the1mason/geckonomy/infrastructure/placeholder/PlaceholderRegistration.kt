@@ -1,7 +1,7 @@
 package com.the1mason.geckonomy.infrastructure.placeholder
 
 import com.the1mason.geckonomy.application.service.EconomyService
-import com.the1mason.geckonomy.application.usecase.FormatMoney
+import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
 import com.the1mason.geckonomy.domain.port.CurrencyRegistry
 import com.the1mason.geckonomy.infrastructure.balance.OfflineBalanceCache
 import com.the1mason.geckonomy.infrastructure.balance.OnlineBalanceMirror

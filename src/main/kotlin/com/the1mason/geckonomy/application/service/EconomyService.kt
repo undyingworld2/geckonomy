@@ -11,7 +11,6 @@ import com.the1mason.geckonomy.application.usecase.CreateAccount
 import com.the1mason.geckonomy.application.usecase.DeleteAccount
 import com.the1mason.geckonomy.application.usecase.Deposit
 import com.the1mason.geckonomy.application.usecase.FindAccountName
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.application.usecase.GetBalance
 import com.the1mason.geckonomy.application.usecase.Has
 import com.the1mason.geckonomy.application.usecase.ListAccountNames
@@ -25,7 +24,6 @@ import com.the1mason.geckonomy.application.usecase.Withdraw
 import com.the1mason.geckonomy.domain.model.AccountId
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.domain.model.CurrencyCode
-import com.the1mason.geckonomy.domain.model.Money
 import com.the1mason.geckonomy.domain.port.CurrencyRegistry
 import java.math.BigDecimal
 
@@ -61,7 +59,6 @@ class EconomyService(
     private val renameAccount: RenameAccount,
     private val deleteAccount: DeleteAccount,
     private val listCurrencies: ListCurrencies,
-    private val formatMoney: FormatMoney,
     private val currencies: CurrencyRegistry,
 ) {
 
@@ -151,9 +148,6 @@ class EconomyService(
 
     /** The currency used when a caller names none. */
     fun defaultCurrency(): Currency = currencies.default()
-
-    /** [money] as the string a player reads. */
-    fun format(money: Money): String = formatMoney.invoke(money)
 
     private fun defaultCode(): CurrencyCode = currencies.default().code
 }

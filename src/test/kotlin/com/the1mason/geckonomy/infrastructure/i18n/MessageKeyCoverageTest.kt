@@ -25,8 +25,14 @@ class MessageKeyCoverageTest {
         // Sections dropped, and not only because they are not messages: Bukkit answers getString on a
         // section with its toString(), so leaving them in would compare MessageKey against entries
         // like "MemorySection[path='balance']".
+        //
+        // `currencies.*` is excluded outright, same as `LanguageRepository.parse()`: its leaves
+        // (`currencies.coins.singular`) are themselves plain strings, so the section filter alone
+        // would not catch them — this block is not a message and is not tracked by MessageKey
+        // (LOCALIZATION.md §2, SPEC.md FR-L5).
         yaml.getKeys(true)
             .filterNot(yaml::isConfigurationSection)
+            .filterNot { it == "currencies" || it.startsWith("currencies.") }
             .mapNotNull { path -> yaml.getString(path)?.let { path to it } }
             .toMap()
     }

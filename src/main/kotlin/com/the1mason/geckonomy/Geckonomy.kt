@@ -9,7 +9,6 @@ import com.the1mason.geckonomy.application.usecase.CreateAccount
 import com.the1mason.geckonomy.application.usecase.DeleteAccount
 import com.the1mason.geckonomy.application.usecase.Deposit
 import com.the1mason.geckonomy.application.usecase.FindAccountName
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.application.usecase.GetBalance
 import com.the1mason.geckonomy.application.usecase.Has
 import com.the1mason.geckonomy.application.usecase.ListAccountNames
@@ -47,7 +46,9 @@ import com.the1mason.geckonomy.infrastructure.bukkit.command.GeckonomyCommands
 import com.the1mason.geckonomy.infrastructure.bukkit.command.GeckonomyPermissions
 import com.the1mason.geckonomy.infrastructure.bukkit.command.PayCommand
 import com.the1mason.geckonomy.infrastructure.bukkit.listener.PlayerConnectionListener
+import com.the1mason.geckonomy.infrastructure.i18n.CurrencyNames
 import com.the1mason.geckonomy.infrastructure.i18n.ErrorMessages
+import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
 import com.the1mason.geckonomy.infrastructure.i18n.LanguageRepository
 import com.the1mason.geckonomy.infrastructure.i18n.MessageService
 import com.the1mason.geckonomy.infrastructure.persistence.ConnectionSource
@@ -148,9 +149,12 @@ class Geckonomy : JavaPlugin() {
         this.config = config
         val storage = openStorage(config) ?: return
         this.storage = storage
-        val economy = Economy(config, storage, Clock.systemUTC(), logger)
+        // Built before Economy, not after: FormatMoney (inside Economy) needs CurrencyNames, which
+        // reads through this same repository (SPEC.md FR-L5).
+        val languages = createLanguageRepository()
+        val economy = Economy(config, storage, Clock.systemUTC(), logger, languages)
         this.economy = economy.service
-        val messages = loadMessages(config)
+        val messages = loadMessages(config, languages)
         this.messages = messages
 
         val sync = VaultSyncPath(economy.service, mirror, scope, config.current.storage.type, logger)
@@ -302,15 +306,17 @@ class Geckonomy : JavaPlugin() {
      * logs a warning when the file is already there, so calling it unconditionally would tell the
      * owner off for the normal case on every start but the first.
      */
-    private fun loadMessages(config: ConfigService): MessageService {
+    private fun createLanguageRepository(): LanguageRepository {
         val directory = dataFolder.toPath().resolve("lang")
         if (!directory.resolve("en.yml").exists()) saveResource("lang/en.yml", false)
-        val languages = LanguageRepository(directory, logger)
+        return LanguageRepository(directory, logger)
+    }
+
+    private fun loadMessages(config: ConfigService, languages: LanguageRepository): MessageService =
         // Named, not a trailing lambda: the last parameter is the renderer, and a trailing lambda
         // would bind there instead.
-        return MessageService(languages, language = { config.current.settings.language })
+        MessageService(languages, language = { config.current.settings.language })
             .apply { reload() }
-    }
 
     override fun onDisable() {
         // Unwinds in reverse: unregister services, flush, close the pool and dispatcher. The economy
@@ -477,7 +483,13 @@ class Geckonomy : JavaPlugin() {
      * Nothing here needs closing: the use cases hold no resources of their own, only [Storage]'s
      * ports, which [Storage] closes.
      */
-    private class Economy(service: ConfigService, storage: Storage, clock: Clock, logger: Logger) {
+    private class Economy(
+        service: ConfigService,
+        storage: Storage,
+        clock: Clock,
+        logger: Logger,
+        languages: LanguageRepository,
+    ) {
 
         /**
          * Read per call, not captured. `settings.rounding-mode` and `settings.keep-transaction-history`
@@ -504,8 +516,11 @@ class Geckonomy : JavaPlugin() {
         /** Shared by [Has] and [CanWithdraw], which are both "read the balance, then judge it". */
         private val getBalance = GetBalance(storage.accounts, storage.balances, amounts, guard)
 
+        /** Lang override (else config), read live through [languages] — no reload hook of its own. */
+        private val names = CurrencyNames(languages::currencyOverride)
+
         /** Exposed as well as injected: Vault's `ResponseMapper` renders `<formatted>` with the same one. */
-        val format = FormatMoney(locale)
+        val format = FormatMoney(locale, names)
 
         val service: EconomyService = EconomyService(
             createAccount = CreateAccount(storage.unitOfWork, currencies, rounding, clock, guard),
@@ -524,7 +539,6 @@ class Geckonomy : JavaPlugin() {
             renameAccount = RenameAccount(storage.accounts, guard),
             deleteAccount = DeleteAccount(storage.unitOfWork, keepHistory, guard),
             listCurrencies = ListCurrencies(currencies),
-            formatMoney = format,
             currencies = currencies,
         )
     }

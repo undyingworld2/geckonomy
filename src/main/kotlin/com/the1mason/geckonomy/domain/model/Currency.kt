@@ -44,17 +44,36 @@ data class Currency(
 ) {
 
     /**
-     * [singular] for exactly one, [plural] for anything else — "1 Gem", "5 Gems", "0 Gems".
-     *
-     * Lives here rather than in the two places that render names (`FormatMoney`'s `<currency>` and
-     * M5's `Placeholders.currency`) because it is one rule about what a currency is called, and two
-     * copies of it would eventually disagree about a balance of exactly one.
+     * [SINGULAR] for exactly one, [PLURAL] for anything else.
      *
      * Compares with [BigDecimal.compareTo], not `equals`: `1.00` and `1` are the same amount of money
      * but not equal objects (see [Money]), and a balance of one coin must not read "1.00 Coins".
+     *
+     * Domain owns only *which* role an amount selects — M10's `infrastructure.i18n.CurrencyNames`
+     * turns the role into the effective string (lang override, else [singular]/[plural]), and M11
+     * generalizes role selection itself to CLDR categories without widening this type
+     * (`CurrencyNames.forAmount(currency, amount, locale)`, not a change here).
      */
-    fun nameFor(amount: BigDecimal): String =
-        if (amount.compareTo(BigDecimal.ONE) == 0) singular else plural
+    fun roleFor(amount: BigDecimal): NameRole =
+        if (amount.compareTo(BigDecimal.ONE) == 0) NameRole.SINGULAR else NameRole.PLURAL
+
+    /**
+     * [singular] for exactly one, [plural] for anything else — "1 Gem", "5 Gems", "0 Gems".
+     *
+     * Lives here rather than in the two places that render names (`FormatMoney`'s `<currency>` and
+     * `Placeholders.currency`) because it is one rule about what a currency is called, and two
+     * copies of it would eventually disagree about a balance of exactly one.
+     */
+    fun nameFor(amount: BigDecimal): String = when (roleFor(amount)) {
+        NameRole.SINGULAR -> singular
+        NameRole.PLURAL -> plural
+    }
+}
+
+/** Which display form a currency name takes for a given amount ([Currency.roleFor]). */
+enum class NameRole {
+    SINGULAR,
+    PLURAL,
 }
 
 /**

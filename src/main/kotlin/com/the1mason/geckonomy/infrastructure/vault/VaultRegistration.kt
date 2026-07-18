@@ -1,9 +1,9 @@
 package com.the1mason.geckonomy.infrastructure.vault
 
 import com.the1mason.geckonomy.application.service.EconomyService
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.domain.policy.RoundingPolicy
 import com.the1mason.geckonomy.domain.port.CurrencyRegistry
+import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
 import com.the1mason.geckonomy.infrastructure.i18n.MessageService
 import kotlinx.coroutines.CoroutineScope
 import org.bukkit.plugin.Plugin
@@ -39,22 +39,22 @@ internal class VaultRegistration(
 
     private val v2 = VaultUnlockedEconomyProvider(
         enabled = plugin::isEnabled,
-        economy = economy,
         currencies = currencies,
         sync = sync,
         responses = responses,
         asyncEconomy = GeckonomyAsyncEconomy(economy, currencies, scope, responses, logger),
+        formatMoney = format,
         logger = logger,
     )
 
     private val v1 = LegacyVaultEconomyProvider(
         enabled = plugin::isEnabled,
-        economy = economy,
         currencies = currencies,
         sync = sync,
         responses = LegacyResponseMapper(responses),
         players = PlayerResolver(plugin.server, sync),
         rounding = rounding,
+        formatMoney = format,
     )
 
     /** Both, at [ServicePriority.Highest]: Geckonomy owns the economy, it does not share it. */

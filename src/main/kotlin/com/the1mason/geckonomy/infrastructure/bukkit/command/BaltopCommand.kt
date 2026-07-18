@@ -2,11 +2,11 @@ package com.the1mason.geckonomy.infrastructure.bukkit.command
 
 import com.the1mason.geckonomy.application.result.Outcome
 import com.the1mason.geckonomy.application.service.EconomyService
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.infrastructure.bukkit.CurrencyAccess
 import com.the1mason.geckonomy.infrastructure.bukkit.CurrencyAccess.Action
 import com.the1mason.geckonomy.infrastructure.bukkit.MainThread
+import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
 import com.the1mason.geckonomy.infrastructure.i18n.MessageKey
 import com.the1mason.geckonomy.infrastructure.i18n.MessageService
 import com.the1mason.geckonomy.infrastructure.i18n.Placeholders
@@ -30,20 +30,20 @@ internal class BaltopCommand(
 
     suspend fun execute(sender: CommandSender, currency: Currency) {
         access.refusal(sender, Action.BALTOP, currency)?.let { refusal ->
-            replies.send(sender, refusal, Placeholders.currency(currency))
+            replies.send(sender, refusal, Placeholders.currency(currency, format))
             return
         }
         when (val result = economy.top(currency.code, size())) {
             is Outcome.Failure -> replies.sendError(sender, result.error)
             is Outcome.Success ->
                 if (result.value.isEmpty()) {
-                    replies.send(sender, MessageKey.BALTOP_EMPTY, Placeholders.currency(currency))
+                    replies.send(sender, MessageKey.BALTOP_EMPTY, Placeholders.currency(currency, format))
                 } else {
                     // One hop for the whole table, not one per row: each `execute` is a scheduler task,
                     // and a ten-row baltop would otherwise be ten of them, interleavable with anything
                     // else the tick is doing.
                     main.execute {
-                        messages.send(sender, MessageKey.BALTOP_HEADER, Placeholders.currency(currency))
+                        messages.send(sender, MessageKey.BALTOP_HEADER, Placeholders.currency(currency, format))
                         result.value.forEach { row ->
                             messages.send(
                                 sender,
@@ -52,7 +52,7 @@ internal class BaltopCommand(
                                     Placeholders.number("rank", row.rank),
                                     Placeholders.text("name", row.name),
                                     Placeholders.money("formatted", row.balance, format),
-                                    Placeholders.currency(currency, row.balance.amount),
+                                    Placeholders.currency(currency, format, row.balance.amount),
                                 ),
                             )
                         }

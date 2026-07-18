@@ -166,4 +166,71 @@ class LanguageRepositoryTest {
         )
     }
 
+    // ── currencies: override block (SPEC.md FR-L5) ──────────────────────
+
+    @Test
+    fun `reads a currency name override from the active language`() {
+        writeLanguage("de", "currencies:\n  coins:\n    singular: 'Münze'\n    plural: 'Münzen'")
+        val repository = repository().apply { reload("de") }
+
+        assertEquals("Münze", repository.currencyOverride("coins", "singular"))
+        assertEquals("Münzen", repository.currencyOverride("coins", "plural"))
+    }
+
+    @Test
+    fun `a currency present but missing one key answers null for only that key`() {
+        writeLanguage("de", "currencies:\n  coins:\n    singular: 'Münze'")
+        val repository = repository().apply { reload("de") }
+
+        assertEquals("Münze", repository.currencyOverride("coins", "singular"))
+        assertEquals(null, repository.currencyOverride("coins", "plural"))
+    }
+
+    @Test
+    fun `a currency code absent from the block answers null for both keys`() {
+        writeLanguage("de", "currencies:\n  coins:\n    singular: 'Münze'")
+        val repository = repository().apply { reload("de") }
+
+        assertEquals(null, repository.currencyOverride("gems", "singular"))
+        assertEquals(null, repository.currencyOverride("gems", "plural"))
+    }
+
+    @Test
+    fun `an active language with no currencies block answers null rather than reading en's`() {
+        // FR-L5's fallback is config.yml, not the en.yml layer messages fall through to — a German
+        // server with no currencies: block must not silently pick up English's overrides.
+        writeLanguage("en", "currencies:\n  coins:\n    singular: 'EnglishOverride'")
+        writeLanguage("de", "balance:\n  self: 'Kontostand'")
+        val repository = repository().apply { reload("de") }
+
+        assertEquals(null, repository.currencyOverride("coins", "singular"))
+    }
+
+    @Test
+    fun `no currencies block at all answers null`() {
+        val repository = repository().apply { reload("en") }
+
+        assertEquals(null, repository.currencyOverride("coins", "singular"))
+    }
+
+    @Test
+    fun `reload picks up an edited currencies block live`() {
+        writeLanguage("de", "currencies:\n  coins:\n    singular: 'Münze'")
+        val repository = repository().apply { reload("de") }
+        assertEquals("Münze", repository.currencyOverride("coins", "singular"))
+
+        writeLanguage("de", "currencies:\n  coins:\n    singular: 'Taler'")
+        repository.reload("de")
+
+        assertEquals("Taler", repository.currencyOverride("coins", "singular"))
+    }
+
+    @Test
+    fun `a malformed active language file degrades to no override, not an exception`() {
+        writeLanguage("de", "balance:\n  self: 'unterminated")
+
+        val repository = repository().apply { reload("de") }
+
+        assertEquals(null, repository.currencyOverride("coins", "singular"))
+    }
 }

@@ -1,6 +1,5 @@
 package com.the1mason.geckonomy.infrastructure.i18n
 
-import com.the1mason.geckonomy.application.usecase.FormatMoney
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.domain.model.Money
 import net.kyori.adventure.text.Component
@@ -36,11 +35,13 @@ class MiniMessageRenderer(private val miniMessage: MiniMessage = MiniMessage.min
 /**
  * Builders for the placeholders LOCALIZATION.md §3 defines.
  *
- * They exist for one rule: **every value inserted here is unparsed**. A value reaches a template from
- * a player's name, a config-authored currency symbol, or a formatted amount built from both — none of
- * which is markup the template's author wrote, and all of which would be parsed as MiniMessage if
- * handed over with [Placeholder.parsed]. Centralizing that here means a caller cannot get it wrong by
- * forgetting; it is only wrong if it deliberately bypasses these.
+ * Two kinds of value, two rules. Player-supplied text (a name, mostly) is always
+ * [Placeholder.unparsed] — a template author never wrote it, and parsing it would let a player author
+ * markup in someone else's chat. Currency-owned values (`<symbol>`, `<currency>`, `<formatted>`) are
+ * owner-authored MiniMessage (config or lang file); [FormatMoney] renders each to a self-contained
+ * `Component` and this inserts it via [Placeholder.component] — already-finished, so it styles only
+ * itself and cannot bleed into the surrounding message (SPEC.md FR-L4). Centralizing both here means a
+ * caller cannot get either wrong by forgetting; it is only wrong if it deliberately bypasses these.
  */
 object Placeholders {
 
@@ -56,27 +57,23 @@ object Placeholders {
     /** A count — `<rank>`, mostly. */
     fun number(tag: String, value: Number): TagResolver = Placeholder.unparsed(tag, value.toString())
 
-    /**
-     * An amount, rendered through its currency's own template — `$100.00`, `5 Gems`.
-     *
-     * Unparsed like the rest, and here the reason is the currency `symbol`: it comes from `config.yml`,
-     * so a symbol of `<rainbow>` would otherwise colour the rest of the message from inside what is
-     * supposed to be a value.
-     */
+    /** An amount, rendered through its currency's own template — `$100.00`, `5 Gems` — as a component. */
     fun money(tag: String, money: Money, format: FormatMoney): TagResolver =
-        Placeholder.unparsed(tag, format(money))
+        Placeholder.component(tag, format(money))
 
     /**
      * The currency's own names: `<symbol>`, and `<currency>` as singular or plural to suit [amount].
      *
      * For messages that name a currency without an amount attached — `error.unknown-currency`,
-     * `baltop.header` — where [money] has nothing to format. [amount] defaults to zero, which reads as
+     * `baltop.header` — where there is no [Money] to format. [amount] defaults to zero, which reads as
      * the plural, because that is what a currency named in the abstract wants ("Top balances (Coins)").
+     * [format] is threaded through rather than adding a second renderer/resolver pair to every call
+     * site: every caller already holds a [FormatMoney].
      */
-    fun currency(currency: Currency, amount: BigDecimal = BigDecimal.ZERO): TagResolver =
+    fun currency(currency: Currency, format: FormatMoney, amount: BigDecimal = BigDecimal.ZERO): TagResolver =
         TagResolver.resolver(
-            text("symbol", currency.symbol),
-            text("currency", currency.nameFor(amount)),
+            Placeholder.component("symbol", format.symbol(currency)),
+            Placeholder.component("currency", format.name(currency, amount)),
         )
 
     /** Several resolvers as one, so callers do not each import [TagResolver]. */
