@@ -93,7 +93,7 @@ class EconomyServiceTest {
         assertEquals(Outcome.Success(true), service.canWithdraw(ALICE, BigDecimal("100.00")))
         assertEquals(Outcome.Success(false), service.canWithdraw(ALICE, BigDecimal("100.01")))
 
-        assertEquals(BigDecimal("125.00"), (service.deposit(ALICE, BigDecimal("25.00")) as Outcome.Success).value.amount)
+        assertEquals(BigDecimal("125.00"), (service.deposit(ALICE, BigDecimal("25.00")) as Outcome.Success).value.balance.amount)
         assertEquals(BigDecimal("100.00"), (service.withdraw(ALICE, BigDecimal("25.00")) as Outcome.Success).value.amount)
         assertEquals(BigDecimal("50.00"), (service.set(ALICE, BigDecimal("50.00")) as Outcome.Success).value.amount)
 

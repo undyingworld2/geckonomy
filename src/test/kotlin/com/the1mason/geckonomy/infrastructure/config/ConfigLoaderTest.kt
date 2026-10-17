@@ -1,5 +1,6 @@
 package com.the1mason.geckonomy.infrastructure.config
 
+import com.the1mason.geckonomy.domain.model.BonusRule
 import com.the1mason.geckonomy.domain.model.CurrencyCode
 import com.the1mason.geckonomy.domain.model.CurrencyScope
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.fail
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.nio.file.Path
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * The loader's contract is the file a server owner types by hand, so these tests work in whole YAML
@@ -334,6 +336,62 @@ class ConfigLoaderTest {
         assertRejects(MINIMAL.replace(MINIMAL_CURRENCY, "currencies:\n  - \"coins\"\n"), "currencies[0]", "coins")
     }
 
+    // ── Bonus currency ──────────────────────────────────────────────────
+
+    @Test
+    fun `a currency has no bonus unless it configures one`() {
+        assertNull(loaded(VALID).config.currencies[1].bonus)
+    }
+
+    @Test
+    fun `reads a bonus block`() {
+        val gems = loaded(withGemsBonus("currency: \"coins\"", "ratio: 0.5", "by-default: false")).config.currencies[1]
+
+        assertEquals(BonusRule(CurrencyCode("coins"), BigDecimal("0.5"), byDefault = false), gems.bonus)
+    }
+
+    @Test
+    fun `a bonus defaults to a ratio of one, granted by default`() {
+        val gems = loaded(withGemsBonus("currency: \"coins\"")).config.currencies[1]
+
+        assertEquals(BonusRule(CurrencyCode("coins"), BigDecimal.ONE, byDefault = true), gems.bonus)
+    }
+
+    @Test
+    fun `rejects a bonus naming an unknown currency`() {
+        assertRejects(withGemsBonus("currency: \"rubies\""), "currencies.gems.bonus.currency", "rubies")
+    }
+
+    @Test
+    fun `rejects a currency that is its own bonus`() {
+        assertRejects(withGemsBonus("currency: \"gems\""), "currencies.gems.bonus.currency", "own bonus")
+    }
+
+    @Test
+    fun `rejects a bonus currency that has a bonus of its own`() {
+        val chained = withGemsBonus("currency: \"coins\"").replace(
+            "format: \"<symbol><amount>\"\n",
+            "format: \"<symbol><amount>\"\n    bonus:\n      currency: \"gems\"\n",
+        )
+
+        assertRejects(chained, "bonus currency cannot grant another")
+    }
+
+    @Test
+    fun `rejects a ratio that is not positive`() {
+        assertRejects(withGemsBonus("currency: \"coins\"", "ratio: 0"), "currencies[1].bonus.ratio", "greater than zero")
+    }
+
+    @Test
+    fun `warns when a currency code shadows an eco give keyword`() {
+        val load = loaded(VALID.replace("code: \"gems\"", "code: \"bonus\""))
+
+        assertTrue(
+            load.warnings.any { "currencies.bonus.code" in it && "/eco give" in it },
+            "expected a keyword warning, got ${load.warnings}",
+        )
+    }
+
     // ── Validation: settings ────────────────────────────────────────────
 
     @Test
@@ -344,6 +402,21 @@ class ConfigLoaderTest {
     @Test
     fun `rejects a rounding mode that is not one`() {
         assertRejects(VALID.replace("rounding-mode: HALF_UP", "rounding-mode: NEAREST"), "settings.rounding-mode", "HALF_UP")
+    }
+
+    @Test
+    fun `reads the mirror refresh interval`() {
+        val settings = loaded(VALID.replace("baltop-size: 10", "baltop-size: 10\n  mirror-refresh-seconds: 30")).config.settings
+
+        assertEquals(30.seconds, settings.mirrorRefresh)
+    }
+
+    @Test
+    fun `rejects a mirror refresh tighter than five seconds`() {
+        assertRejects(
+            VALID.replace("baltop-size: 10", "baltop-size: 10\n  mirror-refresh-seconds: 1"),
+            "settings.mirror-refresh-seconds",
+        )
     }
 
     @Test
@@ -396,6 +469,12 @@ class ConfigLoaderTest {
         is ConfigLoad.Invalid -> load.errors
         is ConfigLoad.Loaded -> fail("expected the config to be rejected, but it loaded")
     }
+
+    /** [VALID] with a `bonus:` block of [lines] on gems. */
+    private fun withGemsBonus(vararg lines: String): String = VALID.replace(
+        "format: \"<amount> <currency>\"\n",
+        "format: \"<amount> <currency>\"\n    bonus:\n" + lines.joinToString("") { "      $it\n" },
+    )
 
     /** Asserts [text] is rejected by an error mentioning every one of [fragments]. */
     private fun assertRejects(text: String, vararg fragments: String) {

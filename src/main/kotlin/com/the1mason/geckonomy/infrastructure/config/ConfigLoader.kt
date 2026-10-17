@@ -1,8 +1,10 @@
 package com.the1mason.geckonomy.infrastructure.config
 
+import com.the1mason.geckonomy.domain.model.BonusRule
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.domain.model.CurrencyCode
 import com.the1mason.geckonomy.domain.model.CurrencyScope
+import com.the1mason.geckonomy.infrastructure.bukkit.command.EcoCommand
 import com.the1mason.geckonomy.infrastructure.placeholder.PlaceholderVariant
 import org.bukkit.configuration.InvalidConfigurationException
 import org.bukkit.configuration.file.YamlConfiguration
@@ -88,6 +90,7 @@ class ConfigLoader {
         val placeholders = readPlaceholders(root.child("placeholders"))
         warnOnDefaultServerId(settings, currencies, problems)
         warnOnPlaceholderShadowing(currencies, problems)
+        warnOnBonusKeywordShadowing(currencies, problems)
 
         val config = GeckonomyConfig(storage, currencies, settings, placeholders)
         return if (problems.errors.isEmpty()) {
@@ -105,6 +108,9 @@ class ConfigLoader {
         keepTransactionHistory = node.bool("keep-transaction-history", true),
         baltopSize = node.int("baltop-size", 10, 1..1_000),
         claimVaultEconomy = node.bool("claim-vault-economy", true),
+        // Floored at 5s for baltop-refresh-seconds' reason: each cycle is one query per online player
+        // per currency.
+        mirrorRefresh = node.int("mirror-refresh-seconds", 60, 5..86_400).seconds,
     )
 
     /**
@@ -168,7 +174,10 @@ class ConfigLoader {
 
         // Only meaningful once every entry has a code to compare: a dropped entry would make an
         // otherwise-fine list look like it has no default, burying the real error under a made-up one.
-        if (currencies.size == entries.size) checkCurrencySet(currencies, root.problems)
+        if (currencies.size == entries.size) {
+            checkCurrencySet(currencies, root.problems)
+            checkBonuses(currencies, root.problems)
+        }
         return currencies
     }
 
@@ -198,7 +207,20 @@ class ConfigLoader {
             checkableOthers = node.bool("balance-check-others", true),
             showInBaltop = node.bool("show-in-baltop", true),
             format = node.string("format", DEFAULT_FORMAT),
+            bonus = readBonus(node.child("bonus")),
         )
+    }
+
+    /** The optional `bonus:` block. Whether its currency exists is [checkBonuses]' job, once all are read. */
+    private fun readBonus(node: ConfigNode): BonusRule? {
+        val rawCode = node.stringOrNull("currency") ?: return null
+        val code = CurrencyCode.parseOrNull(rawCode) ?: run {
+            node.error("currency", "'$rawCode' is not a valid currency code")
+            return null
+        }
+        val ratio = node.decimal("ratio", BigDecimal.ONE)
+        if (ratio.signum() <= 0) node.error("ratio", "must be greater than zero, got $ratio")
+        return BonusRule(code, ratio, node.bool("by-default", true))
     }
 
     /**
@@ -240,6 +262,42 @@ class ConfigLoader {
             else -> problems.error(
                 "currencies",
                 "exactly one currency must have 'default: true'; ${defaults.joinToString()} all do",
+            )
+        }
+    }
+
+    /**
+     * A bonus must name another configured currency, and one without a bonus of its own: a chain would
+     * make one deposit an unbounded number of writes, and a cycle would never end.
+     */
+    private fun checkBonuses(currencies: List<Currency>, problems: ConfigProblems) {
+        val byCode = currencies.associateBy(Currency::code)
+        for (currency in currencies) {
+            val rule = currency.bonus ?: continue
+            val path = "currencies.${currency.code.value}.bonus.currency"
+            val target = byCode[rule.currency]
+            when {
+                rule.currency == currency.code -> problems.error(path, "a currency cannot be its own bonus")
+                target == null -> problems.error(path, "'${rule.currency.value}' is not a configured currency")
+                target.bonus != null -> problems.error(
+                    path,
+                    "'${rule.currency.value}' has a bonus of its own; a bonus currency cannot grant another",
+                )
+            }
+        }
+    }
+
+    /**
+     * A currency coded `bonus` or `nobonus` takes `/eco give <player> <amount> bonus` for itself — a
+     * warning, since `/eco give <player> <amount> <currency> bonus` still reaches the keyword.
+     */
+    private fun warnOnBonusKeywordShadowing(currencies: List<Currency>, problems: ConfigProblems) {
+        for (currency in currencies.filter { it.code.value in EcoCommand.BONUS_KEYWORDS }) {
+            problems.warn(
+                "currencies.${currency.code.value}.code",
+                "collides with the /eco give keyword '${currency.code.value}', so " +
+                    "'/eco give <player> <amount> ${currency.code.value}' means this currency; name the " +
+                    "currency first to use the keyword",
             )
         }
     }

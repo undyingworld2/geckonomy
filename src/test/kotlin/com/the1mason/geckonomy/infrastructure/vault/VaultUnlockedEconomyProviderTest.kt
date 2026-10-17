@@ -53,7 +53,7 @@ class VaultUnlockedEconomyProviderTest {
             currencies = fixture.currencies,
             sync = sync,
             responses = responses,
-            asyncEconomy = GeckonomyAsyncEconomy(fixture.service, fixture.currencies, scope, responses, log.logger),
+            asyncEconomy = GeckonomyAsyncEconomy(fixture.service, fixture.currencies, mirror, scope, responses, log.logger),
             formatMoney = format,
             logger = log.logger,
         )
@@ -82,7 +82,7 @@ class VaultUnlockedEconomyProviderTest {
         val sync = VaultSyncPath(fixture.service, mirror, scope, StorageType.SQLITE, log.logger)
         val provider = VaultUnlockedEconomyProvider(
             { live }, fixture.currencies, sync, responses,
-            GeckonomyAsyncEconomy(fixture.service, fixture.currencies, scope, responses, log.logger), format, log.logger,
+            GeckonomyAsyncEconomy(fixture.service, fixture.currencies, mirror, scope, responses, log.logger), format, log.logger,
         )
 
         live = false
@@ -349,5 +349,29 @@ class VaultUnlockedEconomyProviderTest {
         provider.deposit("SuperShop", ALICE.value, BigDecimal("10.00"))
 
         assertEquals("SuperShop", fixture.log.entries.last().sourcePlugin)
+    }
+
+    // ── Async writes reach the mirror ───────────────────────────────────
+
+    /**
+     * M13: the async API never *reads* the mirror, but it must write it, or the main-thread API keeps
+     * answering an online player's old balance after an async delivery.
+     */
+    @Test
+    fun `an async deposit and transfer are mirrored for the sync API`() {
+        givenAccounts()
+        mirror.hydrate(ALICE, mapOf(fixture.currencies.default().code to BigDecimal.ZERO))
+        mirror.hydrate(BOB, mapOf(fixture.currencies.default().code to BigDecimal.ZERO))
+        val async = provider.async().get()
+
+        async.deposit("Store", ALICE.value, BigDecimal("30.00")).get()
+        async.transfer("Store", ALICE.value, BOB.value, BigDecimal("10.00")).get()
+
+        // The mirror was hydrated at zero, so a mirrored read matching storage is the write-through.
+        for (id in listOf(ALICE, BOB)) {
+            val stored = runBlocking { fixture.balances.get(id, fixture.currencies.default()) }!!
+            assertNotEquals(0, stored.signum(), "the hydrated zero must have been replaced")
+            assertEquals(0, stored.compareTo(provider.balance("Store", id.value)))
+        }
     }
 }

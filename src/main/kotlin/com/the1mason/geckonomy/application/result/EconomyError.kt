@@ -47,6 +47,9 @@ sealed interface EconomyError {
      */
     data class InvalidAmount(val amount: BigDecimal, val reason: String) : EconomyError
 
+    /** A bonus was explicitly asked for on [code], which has none configured (SPEC.md FR-B9). */
+    data class NoBonusCurrency(val code: CurrencyCode) : EconomyError
+
     /**
      * Storage could not carry out the operation, or the plugin has a bug. Either way, nothing the
      * caller can fix.

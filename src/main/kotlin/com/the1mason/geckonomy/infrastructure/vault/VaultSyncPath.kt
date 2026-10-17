@@ -16,6 +16,10 @@ import com.the1mason.geckonomy.domain.model.CurrencyScope
 import com.the1mason.geckonomy.infrastructure.balance.OnlineBalanceMirror
 import com.the1mason.geckonomy.infrastructure.config.StorageType
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -71,14 +75,22 @@ internal class VaultSyncPath(
     fun has(id: AccountId, amount: BigDecimal, currency: Currency): Boolean =
         balance(id, currency) >= amount
 
+    /** The bonus balance is mirrored too: otherwise an online player's bonus reads stale until they relog. */
     fun deposit(id: AccountId, amount: BigDecimal, currency: Currency, by: Attribution): OperationResult =
-        write(id, currency, "depositing $amount ${currency.code}") { economy.deposit(id, amount, currency.code, by) }
+        write("depositing $amount ${currency.code} to ${id.value}", { economy.deposit(id, amount, currency.code, by) }) {
+            mirror.put(id, currency.code, it.balance.amount)
+            it.bonus?.let { bonus -> mirror.put(id, bonus.balance.currency.code, bonus.balance.amount) }
+        }.map { it.balance }
 
     fun withdraw(id: AccountId, amount: BigDecimal, currency: Currency, by: Attribution): OperationResult =
-        write(id, currency, "withdrawing $amount ${currency.code}") { economy.withdraw(id, amount, currency.code, by) }
+        write("withdrawing $amount ${currency.code} from ${id.value}", { economy.withdraw(id, amount, currency.code, by) }) {
+            mirror.put(id, currency.code, it.amount)
+        }
 
     fun set(id: AccountId, amount: BigDecimal, currency: Currency, by: Attribution): OperationResult =
-        write(id, currency, "setting ${currency.code} to $amount") { economy.set(id, amount, currency.code, by) }
+        write("setting ${id.value}'s ${currency.code} to $amount", { economy.set(id, amount, currency.code, by) }) {
+            mirror.put(id, currency.code, it.amount)
+        }
 
     fun canDeposit(id: AccountId, amount: BigDecimal, currency: Currency): Outcome<Boolean> =
         read("canDeposit $amount ${currency.code}") { economy.canDeposit(id, amount, currency.code) }
@@ -86,14 +98,14 @@ internal class VaultSyncPath(
     fun canWithdraw(id: AccountId, amount: BigDecimal, currency: Currency): Outcome<Boolean> =
         read("canWithdraw $amount ${currency.code}") { economy.canWithdraw(id, amount, currency.code) }
 
-    fun transfer(from: AccountId, to: AccountId, amount: BigDecimal, currency: Currency, by: Attribution): TransferResult {
-        val result = read("transferring $amount ${currency.code}") { economy.transfer(from, to, amount, currency.code, by) }
-        if (result is Outcome.Success) {
-            mirror.put(from, currency.code, result.value.payerBalance.amount)
-            mirror.put(to, currency.code, result.value.payeeBalance.amount)
+    fun transfer(from: AccountId, to: AccountId, amount: BigDecimal, currency: Currency, by: Attribution): TransferResult =
+        write(
+            "transferring $amount ${currency.code} from ${from.value} to ${to.value}",
+            { economy.transfer(from, to, amount, currency.code, by) },
+        ) {
+            mirror.put(from, currency.code, it.payerBalance.amount)
+            mirror.put(to, currency.code, it.payeeBalance.amount)
         }
-        return result
-    }
 
     fun createAccount(id: AccountId, name: String): Outcome<Boolean> =
         read("creating an account for $name") { economy.createAccount(id, name) }
@@ -132,15 +144,51 @@ internal class VaultSyncPath(
         mirror.completeHydration(id, slot, balances)
     }
 
-    private fun write(
-        id: AccountId,
-        currency: Currency,
-        what: String,
-        block: suspend () -> OperationResult,
-    ): OperationResult {
-        val result = read(what, block)
-        if (result is Outcome.Success) mirror.put(id, currency.code, result.value.amount)
-        return result
+    /**
+     * Runs a balance write to completion, mirroring its committed result, and waits for it on the
+     * calling (usually main) thread for at most [timeout].
+     *
+     * **The timeout bounds the wait, never the write.** The write runs on the plugin [scope], not
+     * inside the wait, so giving up cancels nothing. A write that was cancelled at the timeout could
+     * still commit on its IO thread — JDBC is not interruptible — and the caller would be told FAILURE
+     * for money that moved; a delivery plugin that then retried would pay twice. Now the write always
+     * finishes, [onCommitted] always mirrors what it committed, and the outcome is logged once it is
+     * known, so an operator reading "gave up" also reads what happened.
+     *
+     * The caller is still told FAILURE on a timeout: Vault has no "pending", and SUCCESS before the
+     * commit would be a guess. With writers to one account queued in memory rather than on its row
+     * lock (`SqlUnitOfWork`), only a sick database gets here.
+     */
+    private fun <T> write(what: String, block: suspend () -> Outcome<T>, onCommitted: (T) -> Unit): Outcome<T> {
+        val pending = scope.async { block().also { if (it is Outcome.Success) onCommitted(it.value) } }
+        return try {
+            runBlocking { withTimeout(timeout) { pending.await() } }
+        } catch (late: TimeoutCancellationException) {
+            logger.log(
+                Level.WARNING,
+                "Geckonomy: main thread gave up after $timeout while $what; the write is still running " +
+                    "and its outcome will be logged",
+                late,
+            )
+            pending.invokeOnCompletion { reportLate(what, pending) }
+            Outcome.Failure(EconomyError.StorageFailure(what, late.message))
+        } catch (failure: Exception) {
+            logger.log(Level.WARNING, "Geckonomy: $what failed", failure)
+            Outcome.Failure(EconomyError.StorageFailure(what, failure.message))
+        }
+    }
+
+    /** The outcome of a write whose caller stopped waiting — the line that reconciles "gave up". */
+    private fun reportLate(what: String, write: Deferred<Outcome<*>>) {
+        @OptIn(ExperimentalCoroutinesApi::class)
+        val outcome = runCatching { write.getCompleted() }
+        when (val result = outcome.getOrNull()) {
+            is Outcome.Success -> logger.warning(
+                "Geckonomy: $what COMMITTED after its caller was told it failed: ${result.value}",
+            )
+            is Outcome.Failure -> logger.warning("Geckonomy: $what finished late and did not apply: ${result.error}")
+            null -> logger.log(Level.WARNING, "Geckonomy: $what finished late and did not apply", outcome.exceptionOrNull())
+        }
     }
 
     /**
@@ -176,10 +224,11 @@ internal class VaultSyncPath(
     private fun refreshBehind(id: AccountId, currency: Currency) {
         val key = id to currency.code
         if (!refreshing.add(key)) return
+        val seen = mirror.get(id, currency.code)
         scope.launch {
             try {
                 (economy.balance(id, currency.code) as? Outcome.Success)
-                    ?.let { mirror.put(id, currency.code, it.value.amount) }
+                    ?.let { mirror.refresh(id, currency.code, seen, it.value.amount) }
             } finally {
                 refreshing.remove(key)
             }

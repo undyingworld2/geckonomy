@@ -2,11 +2,13 @@ package com.the1mason.geckonomy.infrastructure.vault
 
 import com.the1mason.geckonomy.application.Attribution
 import com.the1mason.geckonomy.application.result.Outcome
+import com.the1mason.geckonomy.application.result.map
 import com.the1mason.geckonomy.application.service.EconomyService
 import com.the1mason.geckonomy.domain.model.AccountId
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.domain.model.CurrencyCode
 import com.the1mason.geckonomy.domain.port.CurrencyRegistry
+import com.the1mason.geckonomy.infrastructure.balance.OnlineBalanceMirror
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.future.future
 import net.milkbowl.vault2.economy.AccountPermission
@@ -27,10 +29,15 @@ import kotlin.coroutines.cancellation.CancellationException
  * Talks to [EconomyService] directly and **never reads the mirror**: an integrator that went looking
  * for `async()` asked for exact values, and the mirror trades exactness for not blocking — a trade
  * this path does not need to make.
+ *
+ * It does **write** the mirror: every committed balance goes into [mirror], as on the sync path and
+ * in `/eco` and `/pay`. Without that, an async deposit left the main-thread API answering an online
+ * player's old balance until `MirrorRefresher`'s next pass.
  */
 internal class GeckonomyAsyncEconomy(
     private val economy: EconomyService,
     private val currencies: CurrencyRegistry,
+    private val mirror: OnlineBalanceMirror,
     private val scope: CoroutineScope,
     private val responses: ResponseMapper,
     private val logger: Logger,
@@ -106,7 +113,10 @@ internal class GeckonomyAsyncEconomy(
     override fun set(pluginName: String, accountID: UUID, world: String, currency: String, amount: BigDecimal): CompletableFuture<EconomyResponse> =
         promise {
             val resolved = resolve(currency) ?: return@promise responses.unknownCurrency(currency)
-            responses.response(economy.set(AccountId(accountID), amount, resolved.code, Attribution(pluginName)), amount)
+            val id = AccountId(accountID)
+            val result = economy.set(id, amount, resolved.code, Attribution(pluginName))
+                .mirrored { mirror.put(id, resolved.code, it.amount) }
+            responses.response(result, amount)
         }
 
     override fun withdraw(pluginName: String, accountID: UUID, amount: BigDecimal): CompletableFuture<EconomyResponse> =
@@ -118,7 +128,10 @@ internal class GeckonomyAsyncEconomy(
     override fun withdraw(pluginName: String, accountID: UUID, world: String, currency: String, amount: BigDecimal): CompletableFuture<EconomyResponse> =
         promise {
             val resolved = resolve(currency) ?: return@promise responses.unknownCurrency(currency)
-            responses.response(economy.withdraw(AccountId(accountID), amount, resolved.code, Attribution(pluginName)), amount)
+            val id = AccountId(accountID)
+            val result = economy.withdraw(id, amount, resolved.code, Attribution(pluginName))
+                .mirrored { mirror.put(id, resolved.code, it.amount) }
+            responses.response(result, amount)
         }
 
     override fun deposit(pluginName: String, accountID: UUID, amount: BigDecimal): CompletableFuture<EconomyResponse> =
@@ -130,7 +143,12 @@ internal class GeckonomyAsyncEconomy(
     override fun deposit(pluginName: String, accountID: UUID, world: String, currency: String, amount: BigDecimal): CompletableFuture<EconomyResponse> =
         promise {
             val resolved = resolve(currency) ?: return@promise responses.unknownCurrency(currency)
-            responses.response(economy.deposit(AccountId(accountID), amount, resolved.code, Attribution(pluginName)), amount)
+            val id = AccountId(accountID)
+            val result = economy.deposit(id, amount, resolved.code, Attribution(pluginName)).mirrored { deposited ->
+                mirror.put(id, resolved.code, deposited.balance.amount)
+                deposited.bonus?.let { mirror.put(id, it.balance.currency.code, it.balance.amount) }
+            }
+            responses.response(result.map { it.balance }, amount)
         }
 
     override fun canWithdraw(pluginName: String, accountID: UUID, amount: BigDecimal): CompletableFuture<EconomyResponse> =
@@ -166,7 +184,11 @@ internal class GeckonomyAsyncEconomy(
             )
             val payer = AccountId(from)
             val payee = AccountId(to)
-            responses.transfer(economy.transfer(payer, payee, amount, resolved.code, Attribution(pluginName)), payer, payee, amount)
+            val result = economy.transfer(payer, payee, amount, resolved.code, Attribution(pluginName)).mirrored {
+                mirror.put(payer, resolved.code, it.payerBalance.amount)
+                mirror.put(payee, resolved.code, it.payeeBalance.amount)
+            }
+            responses.transfer(result, payer, payee, amount)
         }
 
     // ── Shared accounts — not in v1 ─────────────────────────────────────
@@ -241,6 +263,10 @@ internal class GeckonomyAsyncEconomy(
     private fun defaultCode(): String = currencies.default().code.value
 
     private fun <T> Outcome<T>.orElse(fallback: T): T = if (this is Outcome.Success) value else fallback
+
+    /** Hands a committed result to [put] before passing it on; a failure moved nothing to mirror. */
+    private inline fun <T> Outcome<T>.mirrored(put: (T) -> Unit): Outcome<T> =
+        also { if (it is Outcome.Success) put(it.value) }
 
     private companion object {
         const val IGNORED_WORLD = ""

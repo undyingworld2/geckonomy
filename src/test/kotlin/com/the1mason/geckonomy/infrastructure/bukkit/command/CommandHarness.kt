@@ -1,6 +1,7 @@
 package com.the1mason.geckonomy.infrastructure.bukkit.command
 
 import com.the1mason.geckonomy.application.EconomyFixture
+import com.the1mason.geckonomy.infrastructure.balance.OnlineBalanceMirror
 import com.the1mason.geckonomy.infrastructure.bukkit.CurrencyAccess
 import com.the1mason.geckonomy.infrastructure.bukkit.MainThread
 import com.the1mason.geckonomy.infrastructure.bukkit.PlayerTargets
@@ -66,6 +67,9 @@ internal class CommandHarness(val fixture: EconomyFixture = EconomyFixture()) {
 
     /** What the commands logged, for the tests that treat a log line as the behaviour under test. */
     val log = LogCapture()
+
+    /** What `/eco` and `/pay` write through to; a test hydrates a player here to make them "online". */
+    val mirror = OnlineBalanceMirror()
 
     val messages: MessageService = MessageService(
         // An empty directory: LanguageRepository falls through to the en.yml bundled in the jar, which
@@ -139,12 +143,13 @@ internal class CommandHarness(val fixture: EconomyFixture = EconomyFixture()) {
                 balance = BalanceCommand(harness.economy, access, targets, replies, fixture.format),
                 pay = PayCommand(
                     harness.economy, access, targets, replies, harness.messages, fixture.format, main, server,
+                    harness.mirror,
                 ),
                 baltop = BaltopCommand(
                     harness.economy, access, replies, harness.messages, fixture.format, main,
                     size = { harness.baltopSizeSupplier() },
                 ),
-                eco = EcoCommand(harness.economy, targets, replies, fixture.format),
+                eco = EcoCommand(harness.economy, targets, replies, fixture.format, harness.mirror),
                 geckonomy = GeckonomyCommand(
                     harness.config, harness.messages, replies, permissions, logger, VERSION,
                 ),

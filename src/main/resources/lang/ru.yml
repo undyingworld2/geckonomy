@@ -36,6 +36,7 @@ baltop:
 
 admin:
   given: "<prefix><green>Выдано <white><formatted></white> игроку <white><target></white>.</green>"
+  given-bonus: "<prefix><green>Выдано <white><formatted></white> (+<white><bonus></white>) игроку <white><target></white>.</green>"
   taken: "<prefix><green>Изъято <white><formatted></white> у игрока <white><target></white>.</green>"
   set: "<prefix><green>Баланс игрока <white><target></white> установлен на <white><formatted></white>.</green>"
   reset: "<prefix><green>Баланс игрока <white><target></white> сброшен на <white><formatted></white>.</green>"
@@ -50,6 +51,7 @@ error:
   invalid-amount: "<prefix><red>Неверная сумма.</red>"
   # Намеренно расплывчато: причина в консоли, и игрок ничего с ней сделать не может.
   storage: "<prefix><red>Что-то пошло не так. Попробуйте ещё раз и сообщите администратору, если повторится.</red>"
+  no-bonus-currency: "<prefix><red>У валюты <white><currency></white> нет бонусной валюты.</red>"
   no-permission: "<prefix><red>У вас нет прав на это действие.</red>"
   no-currency-permission: "<prefix><red>Вы не можете использовать <white><currency></white> здесь.</red>"
   not-transferable: "<prefix><red><white><currency></white> нельзя передавать другим игрокам.</red>"

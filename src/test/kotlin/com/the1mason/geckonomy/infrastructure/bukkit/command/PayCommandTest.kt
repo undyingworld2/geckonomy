@@ -43,6 +43,23 @@ class PayCommandTest {
     }
 
     @Test
+    fun `writes both balances through to the mirror`() {
+        val alice = harness.player("Alice")
+        val bob = harness.player("Bob")
+        val aliceId = AccountId(alice.uniqueId)
+        val bobId = AccountId(bob.uniqueId)
+        givenCoins(aliceId, "Alice", "100.00")
+        givenCoins(bobId, "Bob", "0.00")
+        harness.mirror.hydrate(aliceId, mapOf(TestCurrencies.COINS.code to BigDecimal("100.00")))
+        harness.mirror.hydrate(bobId, mapOf(TestCurrencies.COINS.code to BigDecimal("0.00")))
+
+        harness.dispatch(alice, "pay Bob 25")
+
+        assertEquals(BigDecimal("75.00"), harness.mirror.get(aliceId, TestCurrencies.COINS.code))
+        assertEquals(BigDecimal("25.00"), harness.mirror.get(bobId, TestCurrencies.COINS.code))
+    }
+
+    @Test
     fun `refuses to move more than the payer has, and moves nothing`() {
         val alice = harness.player("Alice")
         val bob = harness.player("Bob")

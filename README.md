@@ -70,6 +70,23 @@ Currency and language changes apply on `/geckonomy reload`. **Storage settings, 
 `allow-overdraft` need a restart** — Geckonomy warns if you reload after changing one. An invalid file
 changes nothing: your server keeps running on the config it already had.
 
+### Bonus currency
+
+A currency can earn another one alongside it. With this on `gems`, every gem deposited — by a shop
+through Vault, or by `/eco give` — also credits the same number of `bonuses`, which players spend like
+any other currency:
+
+```yaml
+  - code: "gems"
+    ...
+    bonus:
+      currency: "bonuses"   # another currency in the list
+      ratio: 1              # bonuses per gem
+      by-default: true      # false: only `/eco give ... bonus` grants it
+```
+
+Only deposits earn a bonus: `/pay`, `/eco take` and `/eco set`/`reset` never touch it.
+
 ### Currency scope
 
 Each currency is one of two things, and it matters only when several servers share one MariaDB:
@@ -99,6 +116,7 @@ Behaviour is identical on both — the same test suite runs against each.
 | `/pay <player> <amount> [currency]` | Pay another player | `geckonomy.pay` |
 | `/baltop [currency]` | The richest accounts | `geckonomy.baltop` |
 | `/eco give\|take\|set\|reset <player> [amount] [currency]` | Adjust balances | `geckonomy.admin` |
+| `/eco give <player> <amount> [currency] bonus\|nobonus` | Give, forcing the bonus currency on or off | `geckonomy.admin` |
 | `/geckonomy reload` | Reload config + languages | `geckonomy.admin` |
 | `/geckonomy version` | Show the version | `geckonomy.admin` |
 

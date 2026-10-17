@@ -53,7 +53,7 @@ class CreateAccount internal constructor(
         name: String,
         type: AccountType = AccountType.PLAYER,
     ): Outcome<Boolean> = guard.guarding({ "creating account ${id.value} ($name)" }) {
-        unitOfWork.transaction { ctx ->
+        unitOfWork.transaction(setOf(id)) { ctx ->
             val created = ctx.accounts.create(Account(id, name, type, clock.instant()))
             if (created) {
                 val round = rounding()

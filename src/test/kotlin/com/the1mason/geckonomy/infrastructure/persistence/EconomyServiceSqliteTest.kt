@@ -3,30 +3,8 @@ package com.the1mason.geckonomy.infrastructure.persistence
 import com.the1mason.geckonomy.application.result.EconomyError
 import com.the1mason.geckonomy.application.result.Outcome
 import com.the1mason.geckonomy.application.service.EconomyService
-import com.the1mason.geckonomy.application.usecase.AccountExists
-import com.the1mason.geckonomy.application.usecase.Amounts
-import com.the1mason.geckonomy.application.usecase.CanDeposit
-import com.the1mason.geckonomy.application.usecase.CanWithdraw
-import com.the1mason.geckonomy.application.usecase.CreateAccount
-import com.the1mason.geckonomy.application.usecase.DeleteAccount
-import com.the1mason.geckonomy.application.usecase.Deposit
-import com.the1mason.geckonomy.application.usecase.FindAccountName
-import com.the1mason.geckonomy.application.usecase.GetBalance
-import com.the1mason.geckonomy.application.usecase.Has
-import com.the1mason.geckonomy.application.usecase.ListAccountNames
-import com.the1mason.geckonomy.application.usecase.ListCurrencies
-import com.the1mason.geckonomy.application.usecase.ListTopBalances
-import com.the1mason.geckonomy.application.usecase.RenameAccount
-import com.the1mason.geckonomy.application.usecase.SetBalance
-import com.the1mason.geckonomy.application.usecase.StorageGuard
-import com.the1mason.geckonomy.application.usecase.TransactionFactory
-import com.the1mason.geckonomy.application.usecase.Transfer
-import com.the1mason.geckonomy.application.usecase.Withdraw
 import com.the1mason.geckonomy.domain.TestCurrencies
 import com.the1mason.geckonomy.domain.model.AccountId
-import com.the1mason.geckonomy.domain.policy.CurrencyValidation
-import com.the1mason.geckonomy.domain.policy.RoundingPolicy
-import com.the1mason.geckonomy.infrastructure.config.ConfigCurrencyRegistry
 import com.the1mason.geckonomy.infrastructure.config.PoolConfig
 import com.the1mason.geckonomy.infrastructure.config.StorageConfig
 import com.the1mason.geckonomy.infrastructure.config.StorageType
@@ -44,12 +22,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.math.BigDecimal
 import java.nio.file.Path
-import java.time.Clock
-import java.time.Instant
-import java.time.ZoneOffset
 import java.util.UUID
-import java.util.logging.Level
-import java.util.logging.Logger
 
 /**
  * M4's integration acceptance: "wiring real M3 repositories through `EconomyService` on SQLite".
@@ -80,7 +53,7 @@ class EconomyServiceSqliteTest {
     @BeforeEach
     fun setUp() {
         harness = PersistenceHarness(storage(), SqliteDialect)
-        service = economyOver(harness)
+        service = economyOver(harness) { keepHistory }
     }
 
     @AfterEach
@@ -94,7 +67,7 @@ class EconomyServiceSqliteTest {
         assertEquals(BigDecimal("100.00"), balanceOf(alice, coins))
         assertEquals(BigDecimal("0"), balanceOf(alice, gems))
 
-        assertEquals(BigDecimal("125.00"), (service.deposit(alice, BigDecimal("25.00")) as Outcome.Success).value.amount)
+        assertEquals(BigDecimal("125.00"), (service.deposit(alice, BigDecimal("25.00")) as Outcome.Success).value.balance.amount)
         assertEquals(BigDecimal("115.00"), (service.withdraw(alice, BigDecimal("10.00")) as Outcome.Success).value.amount)
         assertEquals(BigDecimal("50.00"), (service.set(alice, BigDecimal("50.00")) as Outcome.Success).value.amount)
         assertEquals(BigDecimal("50.00"), balanceOf(alice, coins))
@@ -167,7 +140,7 @@ class EconomyServiceSqliteTest {
         }
 
         assertEquals(BigDecimal("0"), balanceOf(alice, gems))
-        assertEquals(BigDecimal("3"), (service.deposit(alice, BigDecimal("3"), gems) as Outcome.Success).value.amount)
+        assertEquals(BigDecimal("3"), (service.deposit(alice, BigDecimal("3"), gems) as Outcome.Success).value.balance.amount)
     }
 
     @Test
@@ -286,33 +259,4 @@ class EconomyServiceSqliteTest {
         properties = emptyMap(),
         pool = PoolConfig(maximumPoolSize = 10, minimumIdle = 1, connectionTimeoutMs = 10_000),
     )
-
-    /** The composition root's assembly, minus Bukkit. Kept in step with `Geckonomy.Economy`. */
-    private fun economyOver(harness: PersistenceHarness): EconomyService {
-        val currencies = ConfigCurrencyRegistry(listOf(TestCurrencies.COINS, TestCurrencies.GEMS))
-        val rounding = { RoundingPolicy() }
-        val guard = StorageGuard(Logger.getAnonymousLogger().apply { level = Level.OFF })
-        val amounts = Amounts(CurrencyValidation(currencies), rounding)
-        val transactions = TransactionFactory(Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC))
-        val getBalance = GetBalance(harness.accounts, harness.balances, amounts, guard)
-        return EconomyService(
-            createAccount = CreateAccount(harness.unitOfWork, currencies, rounding, Clock.systemUTC(), guard),
-            accountExists = AccountExists(harness.accounts, guard),
-            findAccountName = FindAccountName(harness.accounts, guard),
-            listAccountNames = ListAccountNames(harness.accounts, guard),
-            getBalance = getBalance,
-            has = Has(getBalance, amounts),
-            canDeposit = CanDeposit(harness.accounts, amounts, guard),
-            canWithdraw = CanWithdraw(getBalance, amounts, harness.overdraft),
-            listTopBalances = ListTopBalances(harness.accounts, harness.balances, amounts, guard),
-            deposit = Deposit(harness.unitOfWork, amounts, transactions, guard),
-            withdraw = Withdraw(harness.unitOfWork, amounts, transactions, guard),
-            setBalance = SetBalance(harness.unitOfWork, amounts, harness.overdraft, transactions, guard),
-            transfer = Transfer(harness.unitOfWork, amounts, transactions, guard),
-            renameAccount = RenameAccount(harness.accounts, guard),
-            deleteAccount = DeleteAccount(harness.unitOfWork, { keepHistory }, guard),
-            listCurrencies = ListCurrencies(currencies),
-            currencies = currencies,
-        )
-    }
 }

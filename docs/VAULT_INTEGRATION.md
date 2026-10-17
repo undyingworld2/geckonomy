@@ -180,8 +180,9 @@ The sync `Economy` interface returns values immediately and is called on the mai
 - `OnlineBalanceMirror` holds online players' balances, hydrated on `AsyncPlayerPreLoginEvent` (before
   the player is visible to anyone else, so the mirror is warm before any plugin can ask), evicted on quit.
 - Sync **reads** answer from the mirror and **never read through**. An async refresh runs behind the read
-  only when `scope == NETWORK && storage == MARIADB`; on SQLite no refresh fires, because the file cannot
-  be shared, so there is exactly one writer and staleness is impossible.
+  only when `scope == NETWORK && storage == MARIADB`. Separately, `MirrorRefresher` re-reads every online
+  player's balances every `settings.mirror-refresh-seconds`, catching changes no write path reported
+  (`ARCHITECTURE.md §4`).
 - Sync **writes await the use case** under a bounded timeout and then store the balance the database
   actually returned. The adapter never decides the outcome itself — currency resolution, amount
   validation, rounding and overdraft live in the use case, and duplicating them here is how the two

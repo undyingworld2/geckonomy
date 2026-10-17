@@ -56,10 +56,14 @@ class Transfer internal constructor(
             val context = { "transferring $amount ${currency.value} from ${from.value} to ${to.value}" }
             guard.guarding(context) {
                 try {
-                    unitOfWork.transaction { ctx ->
+                    unitOfWork.transaction(setOf(from, to)) { ctx ->
                         if (!ctx.accounts.exists(from)) throw Abort(EconomyError.AccountNotFound(from))
                         if (!ctx.accounts.exists(to)) throw Abort(EconomyError.AccountNotFound(to))
 
+                        // Both rows, in the store's global order, before either moves: a debit-first
+                        // lock order would let A→B here and B→A on another server each hold one row
+                        // and wait on the other (DATA_MODEL.md §4).
+                        ctx.balance.lock(listOf(from to money.currency, to to money.currency))
                         val debited = ctx.balance.adjust(from, money.currency, money.amount.negate())
                             ?: throw Abort(EconomyError.InsufficientFunds(from, money, ctx.accounts.findName(from)))
                         val credited = ctx.balance.adjust(to, money.currency, money.amount)

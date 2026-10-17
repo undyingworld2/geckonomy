@@ -92,6 +92,13 @@ Geckonomy without knowing its storage or internals.
 - FR-B6 Withdrawals below zero are rejected unless `allow-overdraft` is enabled.
 - FR-B7 Every mutating operation appends an immutable ledger row.
 - FR-B8 All amounts are rounded to the currency's fractional digits before persistence.
+- FR-B9 (M12) A currency may name a **bonus currency** and a ratio. A **deposit** of it also credits
+  `amount × ratio` of the bonus currency (rounded to its digits; nothing if that rounds to zero), in the
+  same transaction and with its own `BONUS` ledger row. Whether a caller that does not say grants it is
+  the currency's `by-default`; `/eco give` can force either way. A bonus currency cannot have a bonus of
+  its own.
+- FR-B10 (M12) Only deposits earn a bonus. Withdrawals, sets/resets and transfers never touch the bonus
+  currency — a transfer moves existing money, and minting bonuses on it would make them farmable.
 
 ### 4.4 Vault integration
 - FR-V1 Register as the Vault `Economy` service at highest priority on enable.
@@ -203,6 +210,11 @@ economy already knows and adds no way to change a balance. Full placeholder tabl
 - NFR-7 **Resilience.** DB errors surface as typed failures, never uncaught exceptions crossing into
   Bukkit callers.
 - NFR-8 **Observability.** Structured logging of failures and slow operations.
+- NFR-9 (M13) **No lost or doubled writes under concurrency.** Concurrent writes to one balance, from
+  one server or several sharing a database, all apply exactly once: no lock-upgrade deadlocks, multi-row
+  locks in one global order, conflicts retried only when certainly rolled back, and a commit of unknown
+  outcome settled by its ledger row rather than guessed. A caller whose wait timed out is told so, and
+  the write still finishes and is logged (DATA_MODEL.md §4).
 
 ## 6. Capability matrix (Vault v2)
 
@@ -221,6 +233,7 @@ economy already knows and adds no way to change a balance. Full placeholder tabl
 | Localizable currency names (lang files) | ✅ M10 | `currencies.<code>` in lang files override config names (§4.6 FR-L5) |
 | CLDR pluralization (ICU4J) | ✅ M11 | Plural categories per locale; correct Russian etc. (§4.6 FR-L6) |
 | Per-player language | ✅ M11 | Was reserved; promoted at M11 (§4.6 FR-L7) |
+| Bonus currency | ✅ M12 | Deposits also credit a paired currency (§4.3 FR-B9/B10); Vault deposits follow `by-default` |
 
 ## 7. Commands & permissions
 
@@ -229,7 +242,7 @@ economy already knows and adds no way to change a balance. Full placeholder tabl
 | `/balance` (`/bal`) `[player] [currency]` | Show own or another's balance | `geckonomy.balance` (+`.others`) | `geckonomy.balance.<code>` (+`.others.<code>`) |
 | `/pay <player> <amount> [currency]` | Transfer to another player | `geckonomy.pay` | `geckonomy.pay.<code>` |
 | `/baltop [currency]` | Richest accounts | `geckonomy.baltop` | `geckonomy.baltop.<code>` |
-| `/eco give <player> <amount> [currency]` | Add balance | `geckonomy.admin` | — |
+| `/eco give <player> <amount> [currency] [bonus\|nobonus]` | Add balance; the keyword forces the bonus on or off (FR-B9) | `geckonomy.admin` | — |
 | `/eco take <player> <amount> [currency]` | Remove balance | `geckonomy.admin` | — |
 | `/eco set <player> <amount> [currency]` | Set balance | `geckonomy.admin` | — |
 | `/eco reset <player> [currency]` | Reset to starting balance | `geckonomy.admin` | — |

@@ -44,6 +44,27 @@ interface BalanceRepository {
      */
     suspend fun adjust(id: AccountId, currency: Currency, delta: BigDecimal): BigDecimal?
 
+    /**
+     * Takes the write lock on every balance row in [rows] for the rest of the enclosing transaction,
+     * creating any that is missing at zero (which, like [adjust]'s, is indistinguishable from no row).
+     *
+     * **In one global order, whatever order [rows] arrives in.** Two transactions that each lock two
+     * rows deadlock exactly when they take them in opposite orders — a transfer A→B on one server and
+     * B→A on another is the textbook case — and a fixed order makes that cycle impossible. So a use
+     * case that writes several rows calls this first with all of them, and its later [adjust]s find
+     * the locks already held. One that writes a single row need not: [adjust] locks it itself.
+     *
+     * Also what makes a read inside a transaction safe to write from: `SetBalance` locks, *then* reads
+     * the previous balance, so no write can land between the read and its own.
+     */
+    suspend fun lock(rows: Collection<Pair<AccountId, Currency>>)
+
+    /**
+     * The balances [ids] hold in [currency]. An id with no row is absent from the result, as [get]
+     * answers `null` for it. One query for many accounts, for `MirrorRefresher`'s periodic re-read.
+     */
+    suspend fun getAll(ids: Collection<AccountId>, currency: Currency): Map<AccountId, BigDecimal>
+
     /** The [limit] highest balances in [currency], richest first, for `/baltop`. */
     suspend fun top(currency: Currency, limit: Int): List<Pair<AccountId, BigDecimal>>
 }

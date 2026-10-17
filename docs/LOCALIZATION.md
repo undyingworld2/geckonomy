@@ -54,6 +54,8 @@ error:
   others-hidden: "<prefix><red>You can't view others' <white><currency></white> balance.</red>"
 admin:
   given: "<prefix><green>Gave <white><formatted></white> to <white><target></white>.</green>"
+  # M12: used instead of `given` when a bonus currency was credited too.
+  given-bonus: "<prefix><green>Gave <white><formatted></white> (+<white><bonus></white>) to <white><target></white>.</green>"
   set: "<prefix><green>Set <white><target></white>'s balance to <white><formatted></white>.</green>"
   reloaded: "<prefix><green>Configuration reloaded.</green>"
 baltop:

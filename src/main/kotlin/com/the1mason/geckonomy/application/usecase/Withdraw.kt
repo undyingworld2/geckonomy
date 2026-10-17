@@ -41,7 +41,7 @@ class Withdraw internal constructor(
         by: Attribution = Attribution.GECKONOMY,
     ): OperationResult = amounts.positive(amount, currency).then { money ->
         guard.guarding({ "withdrawing $amount ${currency.value} from ${id.value}" }) {
-            unitOfWork.transaction { ctx ->
+            unitOfWork.transaction(setOf(id)) { ctx ->
                 if (!ctx.accounts.exists(id)) {
                     Outcome.Failure(EconomyError.AccountNotFound(id))
                 } else {

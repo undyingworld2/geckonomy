@@ -1,6 +1,7 @@
 package com.the1mason.geckonomy.application.service
 
 import com.the1mason.geckonomy.application.Attribution
+import com.the1mason.geckonomy.application.result.DepositResult
 import com.the1mason.geckonomy.application.result.OperationResult
 import com.the1mason.geckonomy.application.result.Outcome
 import com.the1mason.geckonomy.application.result.TransferResult
@@ -24,6 +25,7 @@ import com.the1mason.geckonomy.application.usecase.Withdraw
 import com.the1mason.geckonomy.domain.model.AccountId
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.domain.model.CurrencyCode
+import com.the1mason.geckonomy.domain.model.Money
 import com.the1mason.geckonomy.domain.port.CurrencyRegistry
 import java.math.BigDecimal
 
@@ -88,6 +90,10 @@ class EconomyService(
     suspend fun balance(id: AccountId, currency: CurrencyCode = defaultCode()): OperationResult =
         getBalance.invoke(id, currency)
 
+    /** What each of [ids] holds in [currency], in one read; an account with no row is left out — see [GetBalance.many]. */
+    suspend fun balances(ids: Collection<AccountId>, currency: CurrencyCode): Outcome<Map<AccountId, Money>> =
+        getBalance.many(ids, currency)
+
     /** Whether [id] holds at least [amount]. Advisory — see [Has]. */
     suspend fun has(id: AccountId, amount: BigDecimal, currency: CurrencyCode = defaultCode()): Outcome<Boolean> =
         has.invoke(id, amount, currency)
@@ -106,13 +112,14 @@ class EconomyService(
 
     // ── Writes ──────────────────────────────────────────────────────────
 
-    /** Credits [amount] to [id]. */
+    /** Credits [amount] to [id], plus its bonus currency per [bonus] — see [Deposit]. */
     suspend fun deposit(
         id: AccountId,
         amount: BigDecimal,
         currency: CurrencyCode = defaultCode(),
         by: Attribution = Attribution.GECKONOMY,
-    ): OperationResult = deposit.invoke(id, amount, currency, by)
+        bonus: Boolean? = null,
+    ): DepositResult = deposit.invoke(id, amount, currency, by, bonus)
 
     /** Debits [amount] from [id], refusing to overdraw unless `allow-overdraft` is on. */
     suspend fun withdraw(

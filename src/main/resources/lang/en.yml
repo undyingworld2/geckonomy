@@ -36,6 +36,7 @@ baltop:
 
 admin:
   given: "<prefix><green>Gave <white><formatted></white> to <white><target></white>.</green>"
+  given-bonus: "<prefix><green>Gave <white><formatted></white> (+<white><bonus></white>) to <white><target></white>.</green>"
   taken: "<prefix><green>Took <white><formatted></white> from <white><target></white>.</green>"
   set: "<prefix><green>Set <white><target></white>'s balance to <white><formatted></white>.</green>"
   reset: "<prefix><green>Reset <white><target></white>'s balance to <white><formatted></white>.</green>"
@@ -50,6 +51,7 @@ error:
   invalid-amount: "<prefix><red>Invalid amount.</red>"
   # Deliberately vague: the cause is in the console, and a player can act on none of it.
   storage: "<prefix><red>Something went wrong. Try again, and tell an admin if it keeps happening.</red>"
+  no-bonus-currency: "<prefix><red><white><currency></white> has no bonus currency.</red>"
   no-permission: "<prefix><red>You don't have permission to do that.</red>"
   no-currency-permission: "<prefix><red>You can't use <white><currency></white> here.</red>"
   not-transferable: "<prefix><red><white><currency></white> can't be paid to other players.</red>"

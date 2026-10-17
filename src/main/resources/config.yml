@@ -47,6 +47,12 @@ currencies:
     balance-check-others: false
     show-in-baltop: true
     format: "<amount> <currency>"
+    # Optional: every deposit of this currency (Vault, /eco give) also credits another one.
+    # Transfers, /eco take and /eco set never touch it.
+    # bonus:
+    #   currency: "bonuses"   # another configured currency, without a bonus of its own
+    #   ratio: 1              # bonus = amount x ratio, rounded to that currency's digits
+    #   by-default: true      # false: only '/eco give <player> <amount> gems bonus' grants it
 
 # ── Settings ────────────────────────────────────────────────────────────
 settings:
@@ -58,6 +64,8 @@ settings:
   rounding-mode: HALF_UP  # any java.math.RoundingMode
   keep-transaction-history: true
   baltop-size: 10
+  mirror-refresh-seconds: 60  # how often online players' balances are re-read from the database (min 5),
+                              # catching changes made outside this server's commands and Vault calls
   claim-vault-economy: true   # Geckonomy is the ONLY economy. When true it unregisters any other
                               # Vault economy provider so shops and similar plugins can never bind to
                               # the wrong one - including EssentialsX, whose economy does not stand

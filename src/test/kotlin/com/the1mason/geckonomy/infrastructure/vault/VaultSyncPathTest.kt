@@ -7,6 +7,9 @@ import com.the1mason.geckonomy.application.EconomyFixture.Companion.BOB
 import com.the1mason.geckonomy.application.result.EconomyError
 import com.the1mason.geckonomy.application.result.Outcome
 import com.the1mason.geckonomy.domain.TestCurrencies
+import com.the1mason.geckonomy.domain.model.BonusRule
+import com.the1mason.geckonomy.domain.model.CurrencyCode
+import com.the1mason.geckonomy.infrastructure.config.ConfigCurrencyRegistry
 import com.the1mason.geckonomy.infrastructure.balance.OnlineBalanceMirror
 import com.the1mason.geckonomy.infrastructure.config.StorageType
 import com.the1mason.geckonomy.infrastructure.i18n.LogCapture
@@ -15,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -358,6 +362,48 @@ class VaultSyncPathTest {
         }
 
         assertFalse(mirror.isMirrored(ALICE))
+    }
+
+    @Test
+    fun `a deposit that earns a bonus mirrors the bonus balance too`() {
+        val bonuses = coins.copy(code = CurrencyCode("bonuses"), isDefault = false)
+        val bonusGems = gems.copy(bonus = BonusRule(bonuses.code, BigDecimal.ONE, byDefault = true))
+        val bonusFixture = EconomyFixture(currencies = ConfigCurrencyRegistry(listOf(coins, bonusGems, bonuses)))
+        runBlocking { bonusFixture.givenAccount(ALICE) }
+        mirror.hydrate(ALICE, mapOf(gems.code to BigDecimal.ZERO, bonuses.code to BigDecimal.ZERO))
+        val path = VaultSyncPath(bonusFixture.service, mirror, scope, StorageType.SQLITE, log.logger)
+
+        val result = path.deposit(ALICE, BigDecimal("5"), bonusGems, Attribution("Shop"))
+
+        assertEquals(BigDecimal("5"), (result as Outcome.Success).value.amount)
+        assertEquals(BigDecimal("5"), mirror.get(ALICE, gems.code))
+        assertEquals(BigDecimal("5.00"), mirror.get(ALICE, bonuses.code))
+    }
+
+    /**
+     * M13: the timeout bounds the main thread's wait, never the write. A write cancelled at the
+     * timeout could still commit on its IO thread, and the caller — told FAILURE — would pay again.
+     */
+    @Test
+    fun `a write slower than the timeout still finishes, mirrors, and says what it did`() {
+        runBlocking { fixture.givenAccount(ALICE) }
+        val before = storedCoins() ?: BigDecimal.ZERO
+        mirror.hydrate(ALICE, mapOf(coins.code to before))
+        fixture.balances.stall = 200.milliseconds
+
+        val result = path(timeout = 50.milliseconds).deposit(ALICE, BigDecimal("50.00"), coins, Attribution("shop"))
+
+        assertInstanceOf(Outcome.Failure::class.java, result, "Vault has no 'pending'; only a commit is SUCCESS")
+        val committed = before + BigDecimal("50.00")
+        runBlocking {
+            withTimeout(5.seconds) {
+                while (mirror.get(ALICE, coins.code)?.compareTo(committed) != 0) delay(10)
+            }
+        }
+        fixture.balances.stall = Duration.ZERO
+        assertEquals(0, committed.compareTo(storedCoins()), "the write was not cancelled by the timeout")
+        assertTrue(log.warnings().any { it.contains("gave up") }, "${log.warnings()}")
+        runBlocking { withTimeout(5.seconds) { while (log.warnings().none { it.contains("COMMITTED") }) delay(10) } }
     }
 
     private fun storedCoins() = runBlocking { fixture.balances.get(ALICE, coins) }

@@ -126,24 +126,47 @@ balance written on MariaDB could not be migrated to SQLite.
 ## 4. Atomicity & concurrency
 
 - `BalanceRepository.adjust` is atomic on **both** backends — the minor-unit encoding (§3) means SQLite
-  can do arithmetic in SQL too, so the transactional read-modify-write once planned for it is not
-  needed. Three statements in one transaction:
-  1. `INSERT OR IGNORE` a zero row — a missing row means zero, and a currency added to config after an
-     account exists has none until something touches it (§6).
-  2. `UPDATE ... SET amount = amount + ? WHERE <key> AND amount + ? >= 0` — check and write in one
-     statement, so two concurrent withdrawals cannot both pass and jointly overdraw. The guard clause
-     is omitted entirely when `allow-overdraft` is on. **Zero rows updated = refused**, which the port
+  can do arithmetic in SQL too. **Lock first, never upgrade** (M13), in one transaction:
+  1. `SELECT amount … FOR UPDATE` — the row's *exclusive* lock on first touch, and the balance read
+     under it. A missing row (a currency added to config after the account, §6) is created at zero by a
+     plain `INSERT`; if a concurrent writer created it first, that insert fails on the duplicate key
+     and the transaction is retried onto the existing row.
+  2. `UPDATE ... SET amount = amount + ? WHERE <key> AND amount + ? >= 0` — the guard clause is
+     omitted entirely when `allow-overdraft` is on. **Zero rows updated = refused**, which the port
      returns as `null` rather than an exception (CODING_STANDARDS.md §4).
-  3. `SELECT` the new balance — MariaDB has no `UPDATE ... RETURNING`. The transaction is what makes
-     this trustworthy: without it, another server on the same database could change the balance
-     between the update and the read.
+  3. No read-back: with the lock held, the new balance is exactly the locked one plus the delta.
+- **Why not M2's `INSERT IGNORE` → `UPDATE` → `SELECT`.** It deadlocked in production. On InnoDB an
+  ignored duplicate takes a *shared* lock on the existing row, the `UPDATE` must upgrade it to
+  exclusive, and two deposits to one player each held S while waiting for X. InnoDB rolled one back and,
+  with nothing retrying, the deposit was lost. `MariaDbConcurrencyTest` reproduces it and now asserts
+  InnoDB's own `Innodb_deadlocks` counter does not move.
+- **MariaDB runs READ COMMITTED** (`DataSourceFactory`). Under InnoDB's REPEATABLE READ default, a
+  locking read that finds no row takes a gap lock, and two transactions holding one gap deadlock on the
+  inserts that follow. Nothing relies on a repeatable snapshot: every value a write depends on is read
+  under its row lock.
+- **One global lock order.** A transaction writing several rows (transfer, deposit + bonus, and
+  `SetBalance`'s read-then-write) calls `BalanceRepository.lock(rows)` first. That takes them sorted by
+  account id (unsigned big-endian), then currency, whatever order the caller named them in. Opposite
+  transfers on two servers therefore queue instead of each holding one row and waiting on the other.
+- **One writer per account per server.** `UnitOfWork.transaction(writes = …)` names the accounts it
+  changes, and `SqlUnitOfWork`'s `AccountWriteGate` (256 striped mutexes) runs our own writers to one
+  account one at a time. A burst of deliveries to one player waits in memory, not on the row lock with a
+  pooled connection held. The row lock still decides between servers.
+- **Retry what certainly rolled back; settle what might not have.** `SqlUnitOfWork` re-runs a
+  transaction lost to a conflict: a duplicate-key/FK race on row creation, SQLState `40001` (deadlock
+  victim) or MariaDB 1205 (lock wait timeout). It allows 3 attempts in all, with jittered backoff, so a
+  block **may run more than once** and must touch only its `TxContext`. A `commit()` that *throws* is
+  different: the server may have committed. Its first ledger row is looked up on a fresh connection, so
+  present means the result stands and absent means it is retried. It is never re-run on a guess. Any
+  other error is reported, not retried.
 - The overdraft rule is **compiled into the guard at startup**, because it must live in the same
   statement as the update. A reload cannot change it; `ConfigService` warns and asks for a restart
   (CONFIGURATION.md §4).
-- **Transfers** run through `UnitOfWork.transaction { }` — one JDBC transaction wrapping debit + credit +
-  two ledger inserts; commit or rollback together.
-- Upserts (create balance row on first touch) use dialect-specific `INSERT ... ON CONFLICT`
-  (SQLite) / `INSERT ... ON DUPLICATE KEY UPDATE` (MariaDB), abstracted by `SqlDialect`.
+- **Transfers** run through `UnitOfWork.transaction(setOf(from, to)) { }` — one JDBC transaction
+  wrapping both row locks + debit + credit + two ledger inserts; commit or rollback together.
+- `set` (and account creation's starting balances) upserts with dialect-specific
+  `INSERT ... ON CONFLICT` (SQLite) / `INSERT ... ON DUPLICATE KEY UPDATE` (MariaDB), abstracted by
+  `SqlDialect`.
 - SQLite: enable WAL mode + `busy_timeout`; single-writer semantics handled by the IO dispatcher's
   serialized access where needed.
 

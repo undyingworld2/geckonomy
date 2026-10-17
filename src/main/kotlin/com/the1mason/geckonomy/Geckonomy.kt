@@ -33,6 +33,7 @@ import com.the1mason.geckonomy.infrastructure.config.GeckonomyConfig
 import com.the1mason.geckonomy.infrastructure.config.StartOutcome
 import com.the1mason.geckonomy.infrastructure.config.StorageType
 import com.the1mason.geckonomy.infrastructure.balance.OfflineBalanceCache
+import com.the1mason.geckonomy.infrastructure.balance.MirrorRefresher
 import com.the1mason.geckonomy.infrastructure.balance.OnlineBalanceMirror
 import com.the1mason.geckonomy.infrastructure.bukkit.BukkitMainThread
 import com.the1mason.geckonomy.infrastructure.bukkit.CurrencyAccess
@@ -162,6 +163,7 @@ class Geckonomy : JavaPlugin() {
             PlayerConnectionListener(economy.service, sync, mirror, logger),
             this,
         )
+        MirrorRefresher(economy.service, mirror, { config.current.settings.mirrorRefresh }, logger).start(scope)
         // The check stays out here, on purpose. VaultUnlocked is a soft dependency, so its classes may
         // not exist at runtime, and the JVM resolves a class the moment a method that names one runs.
         // registerVault names several; nothing calls it unless Vault is actually present.
@@ -236,13 +238,13 @@ class Geckonomy : JavaPlugin() {
             targets = targets,
             replies = replies,
             balance = BalanceCommand(economy.service, access, targets, replies, economy.format),
-            pay = PayCommand(economy.service, access, targets, replies, messages, economy.format, main, server),
+            pay = PayCommand(economy.service, access, targets, replies, messages, economy.format, main, server, mirror),
             baltop = BaltopCommand(
                 economy.service, access, replies, messages, economy.format, main,
                 // Per call, not captured: `settings.baltop-size` is reloadable.
                 size = { config.current.settings.baltopSize },
             ),
-            eco = EcoCommand(economy.service, targets, replies, economy.format),
+            eco = EcoCommand(economy.service, targets, replies, economy.format, mirror),
             geckonomy = GeckonomyCommand(config, messages, replies, permissions, logger, pluginMeta.version),
             logger = logger,
         ).register()
@@ -288,6 +290,7 @@ class Geckonomy : JavaPlugin() {
         economy = economy.service,
         currencies = currencies,
         sync = sync,
+        mirror = mirror,
         messages = messages,
         format = economy.format,
         rounding = economy.rounding,

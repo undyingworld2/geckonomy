@@ -124,6 +124,11 @@ in `infrastructure` — domain/application never see a server id. See `DATA_MODE
 - Commands/listeners launch a coroutine on a plugin `CoroutineScope`, await the use case, then hop back
   to the main thread (`BukkitMainThread`) to send messages / interact with the Bukkit API.
 - **Transfers** run inside `UnitOfWork.transaction { }` → one JDBC transaction.
+- **Writers to one account queue in memory** (M13). `UnitOfWork.transaction(writes = …)` names the
+  accounts a transaction changes, and `SqlUnitOfWork` runs two that share one strictly in turn
+  (`AccountWriteGate`, striped mutexes). They wait as suspended coroutines, not as IO threads holding
+  pooled connections on a row lock. A transaction lost to a lock conflict is retried, so a block may
+  run more than once (DATA_MODEL.md §4).
 
 ### The synchronous Vault path
 The Vault `Economy` interface is synchronous (`BigDecimal getBalance(...)` returns immediately) and is
@@ -150,14 +155,24 @@ knows the reconciliation rules; both providers go through it.
   false and a shop refuses the sale instead of giving goods away. It is always logged first (by
   `StorageGuard` at WARNING, or by the timeout arm). The `Outcome`-returning paths — `canDeposit`,
   `canWithdraw`, every write — propagate `StorageFailure` properly and fabricate nothing.
-- `supportsAsync()=true`; integrators that call `async()` get the fully-async `GeckonomyAsyncEconomy`
-  which bypasses the mirror and awaits the DB directly.
+- `supportsAsync()=true`; integrators that call `async()` get the fully-async `GeckonomyAsyncEconomy`,
+  which never *reads* the mirror and awaits the DB directly. It does *write* every committed balance
+  into the mirror (M13), as every other write path does.
 
 **Reads: mirror always; refresh only where staleness is possible.** A mirror hit is answered from the
 mirror. An async refresh is scheduled *behind* the read (deduplicated per account+currency) only when
 `scope == NETWORK && storage == MARIADB` — the one combination where another server can change a balance
-underneath us. On **SQLite no refresh ever fires**: a SQLite file cannot be shared between servers, so a
-network currency there has exactly one writer and cannot go stale.
+underneath us. On SQLite no read-behind refresh fires: the file cannot be shared between servers.
+
+**Every write path we own writes through**: `VaultSyncPath`, the async API, `/eco` and `/pay` all store
+the balance their use case returned. That still leaves gaps (another server on a shared database, a
+manual SQL fix, a path someone adds later and forgets), and on SQLite nothing would ever heal them short
+of a relog. So **`MirrorRefresher`** re-reads every online player's balances every
+`settings.mirror-refresh-seconds` (default 60), in **one query per currency** for the whole server
+(`EconomyService.balances`). A background re-read stores its answer only if the entry still holds what
+it held when the read began (`OnlineBalanceMirror.refresh`, a compare-and-set); otherwise a slow read
+could put back a balance older than a write that landed while it was in flight. The MariaDB read-behind
+refresh uses the same rule.
 
 > The earlier rule here — network currencies read through to the DB — was rejected at M6 review. It
 > would have made the *shipped default config* (`coins: network`, `storage: sqlite`) do a blocking
@@ -171,6 +186,14 @@ double sign-check (`0.004` is positive going in and `0.00` after rounding to a 2
 reloadable `rounding-mode`, and `OverdraftPolicy.permits`. It would also report SUCCESS for a write the
 database later refuses. Reads are the overwhelming majority of Vault traffic and stay free, so NFR-1
 holds where it matters.
+
+**The timeout bounds the wait, never the write** (M13). The write runs on the plugin scope, and the
+main thread only waits for it. Before M13 the write ran *inside* the timeout and was cancelled with it,
+but JDBC is not interruptible: it could still commit, and the caller was told FAILURE for money that
+moved, which a delivery plugin that retries would pay again. Now a timed-out caller still hears FAILURE
+(Vault has no "pending", and SUCCESS before the commit would be a guess). The write finishes, mirrors
+what it committed, and logs `… COMMITTED after its caller was told it failed` (or that it did not
+apply) beneath the "gave up" warning.
 
 > The mirror is the single concession to "DB-only + never block." It is a read cache, never a
 > write-behind buffer: only a value the database actually returned is ever put into it.
@@ -213,12 +236,13 @@ Command → EconomyService.deposit(id, amount, code)
   → Deposit use case
       → CurrencyRegistry.byCode (validate)
       → RoundingPolicy.round(amount)
-      → UnitOfWork.transaction {
+      → UnitOfWork.transaction(writes = {id}) {      // our writers to id queue here (AccountWriteGate)
             ctx.accounts.exists(id)                    // → AccountNotFound, not an FK error
-            ctx.balance.adjust(id, currency, +amount)  [IoDispatcher]
-            ctx.log.append(DEPOSIT)
-        }
-  → OperationResult(success, newBalance)
+            [ctx.balance.lock(source, bonus)]          // only with a bonus: both rows, global order
+            ctx.balance.adjust(id, currency, +amount)  // SELECT … FOR UPDATE, guarded UPDATE [IoDispatcher]
+            ctx.log.append(DEPOSIT) [+ BONUS leg]
+        }   // conflict → rolled back, re-run; commit threw → settled by the ledger row
+  → DepositResult(success, Deposited(balance, bonus))
 Command → MessageService → main thread → player
 ```
 **Why the transaction**, when a deposit touches one account: the balance change and its ledger row
@@ -233,8 +257,9 @@ nothing has been written that anyone would want undone.
 
 ### Transfer (atomic)
 ```
-Transfer use case → UnitOfWork.transaction {
+Transfer use case → UnitOfWork.transaction(writes = {from, to}) {
     ctx.accounts.exists(from) / exists(to)    // throw Abort(AccountNotFound)
+    ctx.balance.lock(from, to)                    // both rows, in the store's global order: no AB/BA
     ctx.balance.adjust(from, currency, -amount)   // null if insufficient → throw Abort(InsufficientFunds)
     ctx.balance.adjust(to,   currency, +amount)
     ctx.log.append(TRANSFER_OUT); ctx.log.append(TRANSFER_IN)
@@ -262,8 +287,8 @@ Plugin → VaultUnlockedEconomyProvider.getBalance(plugin, uuid, world, currency
 ```
 Plugin → VaultUnlockedEconomyProvider.deposit(plugin, uuid, world, currency, amount)
   → VaultSyncPath.deposit(...)
-      → runBlocking(timeout) { EconomyService.deposit(...) }   // the use case decides, not the adapter
-      → mirror.put(id, code, result.balance)                   // authoritative value only
+      → scope.async { EconomyService.deposit(...) → mirror.put(committed) }   // runs to completion
+      → runBlocking(timeout) { await }          // bounds the wait only; late outcome is logged
   → ResponseMapper.response(...)                               // localized; no exception escapes
 → EconomyResponse
 ```

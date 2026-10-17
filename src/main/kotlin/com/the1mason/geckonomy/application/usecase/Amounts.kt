@@ -80,9 +80,11 @@ internal class Amounts(
      * `100.0000`. Everything written was rounded first, so this changes no value — it only stops that
      * scale surfacing in every integrator's UI as the balance of a currency that has two decimals.
      */
-    fun balance(stored: BigDecimal, currency: Currency): Money =
-        Money(rounding().round(stored, currency), currency)
+    fun balance(stored: BigDecimal, currency: Currency): Money = rounded(stored, currency)
+
+    /** [amount] rounded to [currency]'s scale, for an amount derived from one already validated. */
+    fun rounded(amount: BigDecimal, currency: Currency): Money = Money(rounding().round(amount, currency), currency)
 
     private fun round(amount: BigDecimal, code: CurrencyCode): Outcome<Money> =
-        currency(code).map { Money(rounding().round(amount, it), it) }
+        currency(code).map { rounded(amount, it) }
 }

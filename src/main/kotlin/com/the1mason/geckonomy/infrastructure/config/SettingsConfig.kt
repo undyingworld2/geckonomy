@@ -1,6 +1,8 @@
 package com.the1mason.geckonomy.infrastructure.config
 
 import java.math.RoundingMode
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Server-wide behavior — the `settings` section of `config.yml` (CONFIGURATION.md §2).
@@ -17,6 +19,8 @@ import java.math.RoundingMode
  * @property claimVaultEconomy whether Geckonomy unregisters any other economy provider so it is the
  *   sole one Vault answers with — including plugins (EssentialsX) whose own economy will not stand
  *   down. Read per call: reloadable.
+ * @property mirrorRefresh how often online players' mirrored balances are re-read from the database, to
+ *   catch changes no write path reported. Read per cycle: reloadable.
  */
 data class SettingsConfig(
     val serverId: String,
@@ -26,4 +30,5 @@ data class SettingsConfig(
     val keepTransactionHistory: Boolean,
     val baltopSize: Int,
     val claimVaultEconomy: Boolean,
+    val mirrorRefresh: Duration = 60.seconds,
 )
