@@ -1,5 +1,7 @@
 package com.the1mason.geckonomy.domain.port
 
+import com.the1mason.geckonomy.domain.model.AccountId
+
 /**
  * A transactional boundary for operations that must not half-happen.
  *
@@ -15,9 +17,18 @@ interface UnitOfWork {
      * The [TxContext] handed to [block] is valid only for that call; work done through ports
      * captured from outside is *not* part of the transaction.
      *
+     * **[block] may run more than once.** A transaction that loses a lock conflict to another server
+     * (a deadlock, a lock-wait timeout, two first deposits racing to create one balance row) is rolled
+     * back in full and retried, because the alternative is reporting a storage failure for a deposit
+     * that would have succeeded a millisecond later (DATA_MODEL.md §4). So [block] must touch nothing
+     * but [TxContext]: anything it does outside would happen once per attempt.
+     *
+     * @param writes the accounts whose balances [block] may change. An implementation runs two
+     *   transactions that share one strictly one after the other, so writers to one balance queue
+     *   rather than contend for its row lock. Empty for a transaction that changes no balance.
      * @return whatever [block] returns, once committed.
      */
-    suspend fun <T> transaction(block: suspend (TxContext) -> T): T
+    suspend fun <T> transaction(writes: Set<AccountId> = emptySet(), block: suspend (TxContext) -> T): T
 }
 
 /**

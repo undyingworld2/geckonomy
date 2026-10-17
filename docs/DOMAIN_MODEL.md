@@ -34,13 +34,16 @@ data class Currency(
     val transferable: Boolean,   // may players /pay this currency
     val checkableOthers: Boolean,// may players view others' balance in this currency
     val showInBaltop: Boolean,
-    val format: String           // display template, see LOCALIZATION.md
+    val format: String,          // display template, see LOCALIZATION.md
+    val bonus: BonusRule? = null // M12: a deposit also credits this
 )
 enum class CurrencyScope { NETWORK, SERVER }
+data class BonusRule(val currency: CurrencyCode, val ratio: BigDecimal, val byDefault: Boolean)
 ```
 The `transferable` / `checkableOthers` / `showInBaltop` flags are hard, server-wide rules enforced by
 the command layer (in addition to per-currency permission nodes). `scope` decides how balances are keyed
-(see below).
+(see below). `bonus` pairs a currency with another that every **deposit** also credits, at `ratio`
+(SPEC.md FR-B9/B10); a bonus currency has no bonus of its own.
 
 ### `Money`
 An amount bound to a currency. All monetary arithmetic goes through here.
@@ -90,7 +93,7 @@ data class Transaction(
     val counterparty: AccountId?,    // for transfers
     val createdAt: Instant
 )
-enum class TransactionType { DEPOSIT, WITHDRAW, SET, TRANSFER_IN, TRANSFER_OUT }
+enum class TransactionType { DEPOSIT, WITHDRAW, SET, TRANSFER_IN, TRANSFER_OUT, BONUS }
 ```
 
 ## 3. Policies

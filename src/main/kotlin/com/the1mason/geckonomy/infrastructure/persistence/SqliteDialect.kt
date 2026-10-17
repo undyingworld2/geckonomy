@@ -3,6 +3,7 @@ package com.the1mason.geckonomy.infrastructure.persistence
 import java.math.BigDecimal
 import java.sql.PreparedStatement
 import java.sql.ResultSet
+import java.sql.SQLException
 import java.util.UUID
 
 /**
@@ -21,6 +22,14 @@ object SqliteDialect : SqlDialect {
     override fun insertOrIgnore(table: String, columns: List<String>): String =
         "INSERT OR IGNORE INTO ${quote(table)} (${columns.joinToString(", ", transform = ::quote)}) " +
             "VALUES (${columns.joinToString(", ") { "?" }})"
+
+    override val lockingRead: String = ""
+
+    /** `SQLITE_CONSTRAINT`: the primary result code under every extended constraint code. */
+    override fun isConstraintViolation(e: SQLException): Boolean =
+        e.errorCode == SQLITE_CONSTRAINT || e.sqlState?.startsWith("23") == true
+
+    private const val SQLITE_CONSTRAINT = 19
 
     override fun upsert(
         table: String,

@@ -26,6 +26,40 @@ class OnlineBalanceMirrorTest {
     }
 
     @Test
+    fun `a refresh replaces the value it started from`() {
+        val mirror = OnlineBalanceMirror()
+        mirror.hydrate(ALICE, mapOf(coins to BigDecimal("100.00")))
+
+        mirror.refresh(ALICE, coins, seen = BigDecimal("100.00"), fresh = BigDecimal("40.00"))
+
+        assertEquals(BigDecimal("40.00"), mirror.get(ALICE, coins))
+    }
+
+    @Test
+    fun `a refresh loses to a write that landed while it was reading`() {
+        // The read began at 100; a payment then wrote 150. The read's answer predates the payment.
+        val mirror = OnlineBalanceMirror()
+        mirror.hydrate(ALICE, mapOf(coins to BigDecimal("100.00")))
+        mirror.put(ALICE, coins, BigDecimal("150.00"))
+
+        mirror.refresh(ALICE, coins, seen = BigDecimal("100.00"), fresh = BigDecimal("100.00"))
+
+        assertEquals(BigDecimal("150.00"), mirror.get(ALICE, coins))
+    }
+
+    @Test
+    fun `a refresh fills a currency the mirror lacked, and never resurrects an evicted account`() {
+        val mirror = OnlineBalanceMirror()
+        mirror.hydrate(ALICE, emptyMap())
+
+        mirror.refresh(ALICE, gems, seen = null, fresh = BigDecimal("3"))
+        mirror.refresh(BOB, gems, seen = null, fresh = BigDecimal("3"))
+
+        assertEquals(BigDecimal("3"), mirror.get(ALICE, gems))
+        assertFalse(mirror.isMirrored(BOB))
+    }
+
+    @Test
     fun `an unmirrored account reads null rather than zero`() {
         // The distinction is the whole point: null means "ask the database", zero means "they're broke".
         // Collapsing the two would report every offline player as having nothing.

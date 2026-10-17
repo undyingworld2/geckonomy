@@ -10,7 +10,7 @@ Money is always `BigDecimal`, never `Double`/`Float`.
 
 | Package | Holds |
 |---|---|
-| `model` | `AccountId`, `Account`, `AccountType`, `Currency`, `CurrencyScope`, `CurrencyCode`, `Money`, `Balance`, `Transaction`, `TransactionType` |
+| `model` | `AccountId`, `Account`, `AccountType`, `Currency`, `CurrencyScope`, `BonusRule`, `CurrencyCode`, `Money`, `Balance`, `Transaction`, `TransactionType` |
 | `policy` | `RoundingPolicy`, `OverdraftPolicy`, `CurrencyValidation`, `CurrencyResolution` |
 | `port` | `AccountRepository`, `BalanceRepository`, `TransactionLog`, `CurrencyRegistry`, `UnitOfWork` (+ `TxContext`) |
 | *(root)* | `DomainException` — sealed base, with `CurrencyMismatch` and `InvalidCurrencyCode` |

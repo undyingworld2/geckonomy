@@ -19,7 +19,7 @@ import java.math.BigDecimal
 /**
  * Builds Vault v2 responses from [Outcome]s (VAULT_INTEGRATION.md §2).
  *
- * The five [EconomyError] variants all collapse to `FAILURE`; the distinction survives only in
+ * The [EconomyError] variants all collapse to `FAILURE`; the distinction survives only in
  * [errorMessage], which is rendered from the `error.*` language keys rather than hard-coded, because
  * a caller commonly shows it to the player who triggered it. It keeps the `<prefix>` for that reason:
  * text surfacing inside a foreign plugin's output should say whose refusal it is.

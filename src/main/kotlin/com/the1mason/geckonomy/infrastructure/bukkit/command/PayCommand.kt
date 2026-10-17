@@ -5,6 +5,7 @@ import com.the1mason.geckonomy.application.service.EconomyService
 import com.the1mason.geckonomy.domain.model.AccountId
 import com.the1mason.geckonomy.domain.model.Currency
 import com.the1mason.geckonomy.domain.model.Money
+import com.the1mason.geckonomy.infrastructure.balance.OnlineBalanceMirror
 import com.the1mason.geckonomy.infrastructure.bukkit.CurrencyAccess
 import com.the1mason.geckonomy.infrastructure.bukkit.CurrencyAccess.Action
 import com.the1mason.geckonomy.infrastructure.bukkit.MainThread
@@ -23,6 +24,9 @@ import java.math.BigDecimal
  *
  * Goes through the atomic transfer use case, never withdraw-then-deposit: the two halves must commit
  * together or not at all, and that guarantee exists exactly once, in `Transfer` (ARCHITECTURE.md §5).
+ *
+ * Both resulting balances are written through to [mirror], so a scoreboard or shop sees the payment at
+ * once rather than after the next refresh.
  */
 internal class PayCommand(
     private val economy: EconomyService,
@@ -33,6 +37,7 @@ internal class PayCommand(
     private val format: FormatMoney,
     private val main: MainThread,
     private val server: Server,
+    private val mirror: OnlineBalanceMirror,
 ) {
 
     suspend fun execute(
@@ -67,6 +72,8 @@ internal class PayCommand(
         // and the ledger already names the payer on both rows.
         when (val result = economy.transfer(payer, payee, amount, currency.code)) {
             is Outcome.Success -> {
+                mirror.put(payer, currency.code, result.value.payerBalance.amount)
+                mirror.put(payee, currency.code, result.value.payeeBalance.amount)
                 replies.send(
                     sender,
                     MessageKey.PAY_SENT,

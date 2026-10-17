@@ -6,6 +6,7 @@ import com.the1mason.geckonomy.application.result.Outcome
 import com.the1mason.geckonomy.application.result.then
 import com.the1mason.geckonomy.domain.model.AccountId
 import com.the1mason.geckonomy.domain.model.CurrencyCode
+import com.the1mason.geckonomy.domain.model.Money
 import com.the1mason.geckonomy.domain.port.AccountRepository
 import com.the1mason.geckonomy.domain.port.BalanceRepository
 import java.math.BigDecimal
@@ -47,6 +48,21 @@ class GetBalance internal constructor(
                     accounts.exists(id) -> Outcome.Success(amounts.balance(BigDecimal.ZERO, resolved))
                     else -> Outcome.Failure(EconomyError.AccountNotFound(id))
                 }
+            }
+        }
+
+    /**
+     * Many accounts' balances in one currency, in one query — `MirrorRefresher`'s periodic re-read.
+     *
+     * An account with **no row is left out** rather than answered. Telling "a currency added after it
+     * was created" (zero) from "no such account" costs an `exists` per id, which is exactly the
+     * per-account round trip this exists to avoid, and a re-read loses nothing by skipping one: the
+     * mirror keeps what it had.
+     */
+    suspend fun many(ids: Collection<AccountId>, currency: CurrencyCode): Outcome<Map<AccountId, Money>> =
+        amounts.currency(currency).then { resolved ->
+            guard.guarding({ "reading ${ids.size} accounts' ${currency.value} balances" }) {
+                Outcome.Success(balances.getAll(ids, resolved).mapValues { (_, stored) -> amounts.balance(stored, resolved) })
             }
         }
 }

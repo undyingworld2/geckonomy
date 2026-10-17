@@ -38,7 +38,7 @@ class DeleteAccount internal constructor(
      */
     suspend operator fun invoke(id: AccountId): Outcome<Unit> =
         guard.guarding({ "deleting account ${id.value}" }) {
-            unitOfWork.transaction { ctx ->
+            unitOfWork.transaction(setOf(id)) { ctx ->
                 if (!ctx.accounts.delete(id)) {
                     Outcome.Failure(EconomyError.AccountNotFound(id))
                 } else {

@@ -69,7 +69,16 @@ class DataSourceFactory {
         }
     }
 
-    /** MariaDB: a remote server, pooled as configured. */
+    /**
+     * MariaDB: a remote server, pooled as configured.
+     *
+     * **READ COMMITTED, not InnoDB's REPEATABLE READ default** — and not as a tuning choice. Every
+     * balance write locks its row with `SELECT … FOR UPDATE` first (`SqlBalanceRepository.lockRow`).
+     * Under REPEATABLE READ a locking read that finds *no* row takes a gap lock, two transactions can
+     * hold the same gap, and the inserts each then makes wait on the other: a deadlock on exactly the
+     * first-deposit path. READ COMMITTED takes no gap locks for reads. Nothing here relies on a
+     * repeatable snapshot: every value a write depends on is read under its row lock.
+     */
     private fun mariadb(config: StorageConfig): HikariConfig = base(config).apply {
         driverClassName = MARIADB_DRIVER
         jdbcUrl = "jdbc:mariadb://${config.host}:${config.port}/${config.database}"
@@ -77,6 +86,7 @@ class DataSourceFactory {
         password = config.password
         maximumPoolSize = config.pool.maximumPoolSize
         minimumIdle = config.pool.minimumIdle
+        transactionIsolation = "TRANSACTION_READ_COMMITTED"
     }
 
     /**

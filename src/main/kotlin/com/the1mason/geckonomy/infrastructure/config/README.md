@@ -14,4 +14,7 @@ clear error rather than starting in a half-configured state. Builds the `Currenc
   `/geckonomy reload`. A rejected reload keeps the running config untouched.
 - `ConfigCurrencyRegistry` — a stable object whose immutable currency snapshot is swapped on reload,
   so ports injected once at wiring see the new currencies.
+- A currency's `bonus:` block (M12) is validated against the whole list: it must name another
+  configured currency, not itself and not one with a bonus of its own, with `ratio > 0`. A currency
+  coded `bonus`/`nobonus` warns, as it shadows the `/eco give` keyword.
 - No `CurrencyConfig` DTO: entries map straight to `domain.model.Currency` (`docs/tasks/M2` for why).

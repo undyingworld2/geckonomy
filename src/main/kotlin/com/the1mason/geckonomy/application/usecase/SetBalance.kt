@@ -55,10 +55,13 @@ class SetBalance internal constructor(
             Outcome.Failure(EconomyError.InvalidAmount(amount, "negative balances are not allowed"))
         } else {
             guard.guarding({ "setting ${id.value}'s ${currency.value} balance to $amount" }) {
-                unitOfWork.transaction { ctx ->
+                unitOfWork.transaction(setOf(id)) { ctx ->
                     if (!ctx.accounts.exists(id)) {
                         Outcome.Failure(EconomyError.AccountNotFound(id))
                     } else {
+                        // Locked before it is read, or a deposit landing between the read and the
+                        // write would vanish from the ledger's `delta`.
+                        ctx.balance.lock(listOf(id to target.currency))
                         val previous = ctx.balance.get(id, target.currency) ?: BigDecimal.ZERO
                         ctx.balance.set(id, target.currency, target.amount)
                         ctx.log.append(

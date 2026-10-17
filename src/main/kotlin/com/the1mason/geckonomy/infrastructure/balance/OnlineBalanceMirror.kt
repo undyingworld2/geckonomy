@@ -73,5 +73,21 @@ class OnlineBalanceMirror {
         balances[id]?.put(currency, amount)
     }
 
+    /**
+     * Stores [fresh] for a background re-read, but only if the entry still holds [seen] — what it held
+     * when the read began.
+     *
+     * A plain [put] would let a slow read overwrite a write that landed while it was in flight, putting
+     * the *older* balance back until the next refresh. `null` [seen] means the currency was not mirrored
+     * (a failed hydration read, or one added on reload), so only an absent entry is filled.
+     */
+    fun refresh(id: AccountId, currency: CurrencyCode, seen: BigDecimal?, fresh: BigDecimal) {
+        val slot = balances[id] ?: return
+        if (seen == null) slot.putIfAbsent(currency, fresh) else slot.replace(currency, seen, fresh)
+    }
+
+    /** Every account currently mirrored — the online players. */
+    fun accounts(): Set<AccountId> = balances.keys.toSet()
+
     fun snapshot(id: AccountId): Map<CurrencyCode, BigDecimal>? = balances[id]?.toMap()
 }

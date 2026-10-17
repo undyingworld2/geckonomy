@@ -6,7 +6,7 @@ import net.kyori.adventure.text.Component
 /**
  * An [EconomyError] as the sentence a player reads.
  *
- * The five variants are one-to-one with the `error.*` keys, so this `when` is total by construction
+ * The variants are one-to-one with the `error.*` keys, so this `when` is total by construction
  * and a new variant fails the build. It lives here, not in either caller, because both the Vault
  * response mapper and the commands answer for the same errors — and a second copy of the mapping would
  * drift the moment one of them gained a variant.
@@ -41,6 +41,8 @@ internal class ErrorMessages(
         )
 
         is EconomyError.InvalidAmount -> messages.render(MessageKey.ERROR_INVALID_AMOUNT)
+        is EconomyError.NoBonusCurrency ->
+            messages.render(MessageKey.ERROR_NO_BONUS_CURRENCY, Placeholders.text("currency", error.code.value))
         is EconomyError.StorageFailure -> messages.render(MessageKey.ERROR_STORAGE)
     }
 }

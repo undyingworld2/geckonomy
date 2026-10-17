@@ -58,4 +58,7 @@ enum class TransactionType {
 
     /** The sending side of a transfer. */
     TRANSFER_OUT,
+
+    /** Credited alongside a deposit of another currency ([BonusRule]). */
+    BONUS,
 }

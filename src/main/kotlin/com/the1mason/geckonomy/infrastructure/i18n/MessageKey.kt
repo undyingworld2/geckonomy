@@ -41,6 +41,7 @@ enum class MessageKey(val path: String) {
 
     // ── /eco, /geckonomy ────────────────────────────────────────────────
     ADMIN_GIVEN("admin.given"),
+    ADMIN_GIVEN_BONUS("admin.given-bonus"),
     ADMIN_TAKEN("admin.taken"),
     ADMIN_SET("admin.set"),
     ADMIN_RESET("admin.reset"),
@@ -49,13 +50,14 @@ enum class MessageKey(val path: String) {
     ADMIN_VERSION("admin.version"),
 
     // ── Errors ──────────────────────────────────────────────────────────
-    // The first five are one-to-one with EconomyError's variants, so M7's mapping is total by
+    // The first six are one-to-one with EconomyError's variants, so M7's mapping is total by
     // construction; the rest are refusals the command layer makes before the economy is ever asked.
     ERROR_UNKNOWN_CURRENCY("error.unknown-currency"),
     ERROR_ACCOUNT_NOT_FOUND("error.account-not-found"),
     ERROR_INSUFFICIENT_FUNDS("error.insufficient-funds"),
     ERROR_INVALID_AMOUNT("error.invalid-amount"),
     ERROR_STORAGE("error.storage"),
+    ERROR_NO_BONUS_CURRENCY("error.no-bonus-currency"),
     ERROR_NO_PERMISSION("error.no-permission"),
     ERROR_NO_CURRENCY_PERMISSION("error.no-currency-permission"),
     ERROR_NOT_TRANSFERABLE("error.not-transferable"),

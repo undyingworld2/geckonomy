@@ -206,7 +206,9 @@ internal class ConfigNode(
 internal fun Map<*, *>.asSection(): ConfigurationSection {
     val section = MemoryConfiguration()
     for ((key, value) in this) {
-        if (key != null) section.set(key.toString(), value)
+        if (key == null) continue
+        // A nested map (a currency's `bonus:`) must become a section, or `child()` cannot see it.
+        if (value is Map<*, *>) section.createSection(key.toString(), value) else section.set(key.toString(), value)
     }
     return section
 }

@@ -66,10 +66,25 @@ internal abstract class Failable {
     var calls = 0
         private set
 
+    private var passesBeforeFailing = 0
+
+    /** Like [failWith], but lets [passes] calls through first — to fail the second write of a pair. */
+    fun failWith(failure: Exception, passes: Int) {
+        failWith = failure
+        passesBeforeFailing = passes
+    }
+
     protected suspend fun checkFailure() {
         calls++
         if (stall > Duration.ZERO) delay(stall)
-        failWith?.let { failWith = null; throw it }
+        failWith?.let {
+            if (passesBeforeFailing > 0) {
+                passesBeforeFailing--
+            } else {
+                failWith = null
+                throw it
+            }
+        }
     }
 }
 
@@ -185,6 +200,20 @@ internal class InMemoryBalanceRepository(
         return balances[key]
     }
 
+    /** The fake has no locks to take; it reproduces the one visible effect, a missing row created at zero. */
+    override suspend fun lock(rows: Collection<Pair<AccountId, Currency>>) {
+        checkFailure()
+        rows.forEach { (id, currency) ->
+            requireAccount(id)
+            balances.getOrPut(Key(id, currency.code)) { BigDecimal.ZERO.setScale(STORED_SCALE) }
+        }
+    }
+
+    override suspend fun getAll(ids: Collection<AccountId>, currency: Currency): Map<AccountId, BigDecimal> {
+        checkFailure()
+        return ids.mapNotNull { id -> balances[Key(id, currency.code)]?.let { id to it } }.toMap()
+    }
+
     override suspend fun top(currency: Currency, limit: Int): List<Pair<AccountId, BigDecimal>> {
         checkFailure()
         return balances.filterKeys { it.currency == currency.code }
@@ -256,7 +285,8 @@ internal class InMemoryUnitOfWork(
         override val log: TransactionLog = this@InMemoryUnitOfWork.log
     }
 
-    override suspend fun <T> transaction(block: suspend (TxContext) -> T): T {
+    /** [writes] is ignored: the fakes run one coroutine at a time, so there is nothing to serialize. */
+    override suspend fun <T> transaction(writes: Set<AccountId>, block: suspend (TxContext) -> T): T {
         val saved = listOf<Snapshotting>(accounts, balances, log).map { it to it.snapshot() }
         return try {
             block(context)

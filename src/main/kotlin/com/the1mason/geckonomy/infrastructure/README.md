@@ -13,10 +13,10 @@ and blocks for nothing at all (SPEC.md FR-P7).
 
 | Package | Holds |
 |---|---|
-| `persistence` | `DataSourceFactory`, `SqlDialect`, `SqliteDialect`, `MariaDbDialect`, `MigrationRunner`, `SqlAccountRepository`, `SqlBalanceRepository`, `SqlTransactionLog`, `SqlUnitOfWork`, `ScopeResolver`, `IoDispatcher` |
+| `persistence` | `DataSourceFactory`, `SqlDialect`, `SqliteDialect`, `MariaDbDialect`, `MigrationRunner`, `SqlAccountRepository`, `SqlBalanceRepository`, `SqlTransactionLog`, `SqlUnitOfWork`, `AccountWriteGate`, `WriteConflict`, `ScopeResolver`, `IoDispatcher` |
 | `config` | `GeckonomyConfig`, `ConfigLoader`, `StorageConfig`, `CurrencyConfig`, `SettingsConfig`, `PlaceholderConfig` |
 | `i18n` | `MessageService`, `MiniMessageRenderer`, `LanguageRepository`, `MessageKey`, `Placeholders` (MiniMessage tags — unrelated to `placeholder/` below) |
-| `balance` | `OnlineBalanceMirror`, `OfflineBalanceCache` — synchronous-read state shared by the `vault` and `placeholder` adapters, which is why it belongs to neither |
+| `balance` | `OnlineBalanceMirror`, `OfflineBalanceCache`, `MirrorRefresher` — synchronous-read state shared by the `vault` and `placeholder` adapters, which is why it belongs to neither |
 | `vault` | `VaultUnlockedEconomyProvider` (v2), `LegacyVaultEconomyProvider` (v1), `GeckonomyAsyncEconomy`, `VaultRegistration`, `VaultSyncPath`, `ResponseMapper`, `LegacyResponseMapper`, `PlayerResolver` |
 | `placeholder` | `GeckonomyExpansion` (the only class naming a PAPI type), `PlaceholderRegistration`, `PlaceholderResolver`, `PlaceholderVariant`, `BaltopSnapshot` |
 | `bukkit` | `command/*`, `listener/PlayerConnectionListener`, `BukkitMainThread`, `CurrencyAccess`, `PlayerTargets` |

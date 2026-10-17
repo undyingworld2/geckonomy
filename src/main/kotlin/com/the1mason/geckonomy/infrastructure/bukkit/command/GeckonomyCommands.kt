@@ -158,7 +158,7 @@ internal class GeckonomyCommands(
         )
         .build()
 
-    // ── /eco give|take|set|reset <player> <amount> [currency] ────────────
+    // ── /eco give|take|set|reset <player> <amount> [currency] [bonus|nobonus] ──
 
     private fun ecoNode(): GeckonomyNode {
         val eco = Commands.literal("eco").requires { it.sender.hasPermission(ADMIN) }
@@ -175,10 +175,7 @@ internal class GeckonomyCommands(
                             } else {
                                 Commands.argument("amount", StringArgumentType.word())
                                     .executes { ctx -> ecoRun(ctx, operation, ctx.string("amount"), null) }
-                                    .then(
-                                        adminCurrencyArgument()
-                                            .executes { ctx -> ecoRun(ctx, operation, ctx.string("amount"), ctx.string("currency")) },
-                                    )
+                                    .then(ecoCurrencyArgument(operation))
                             },
                         ),
                 ),
@@ -187,16 +184,42 @@ internal class GeckonomyCommands(
         return eco.build()
     }
 
+    /** `[currency]`, and for `give` a further `[bonus|nobonus]` after it. */
+    private fun ecoCurrencyArgument(operation: EcoCommand.Operation) =
+        adminCurrencyArgument(withBonusKeywords = operation == EcoCommand.Operation.GIVE)
+            .executes { ctx -> ecoRun(ctx, operation, ctx.string("amount"), ctx.string("currency")) }
+            .apply {
+                if (operation != EcoCommand.Operation.GIVE) return@apply
+                EcoCommand.BONUS_KEYWORDS.forEach { (keyword, bonus) ->
+                    then(
+                        Commands.literal(keyword).executes { ctx ->
+                            ecoRun(ctx, operation, ctx.string("amount"), ctx.string("currency"), bonus)
+                        },
+                    )
+                }
+            }
+
     private fun ecoRun(
         ctx: CommandContext<CommandSourceStack>,
         operation: EcoCommand.Operation,
         amountArg: String?,
         currencyArg: String?,
+        bonusArg: Boolean? = null,
     ): Int {
         val sender = ctx.source.sender
         val target = ctx.string("player")!!
-        val currency = currencies.resolveArgument(currencyArg)
-        if (currency == null) {
+        var currency = currencies.resolveArgument(currencyArg)
+        var bonus = bonusArg
+        // `/eco give Bob 100 bonus` lands the keyword in the currency slot, since Brigadier matches the
+        // word argument first. A real currency of that name wins; the keyword is the fallback.
+        if (currency == null && bonus == null && operation == EcoCommand.Operation.GIVE) {
+            EcoCommand.BONUS_KEYWORDS[currencyArg]?.let {
+                bonus = it
+                currency = currencies.default()
+            }
+        }
+        val resolved = currency
+        if (resolved == null) {
             replies.send(sender, MessageKey.ERROR_UNKNOWN_CURRENCY, unknownCurrency(currencyArg!!))
             return SUCCESS
         }
@@ -207,7 +230,7 @@ internal class GeckonomyCommands(
         }
         val quick = targets.fromServer(target)
         launchGuarded(sender, "running /eco ${operation.label} on $target") {
-            eco.execute(sender, operation, currency, target, amount, quick)
+            eco.execute(sender, operation, resolved, target, amount, quick, bonus)
         }
         return SUCCESS
     }
@@ -289,10 +312,15 @@ internal class GeckonomyCommands(
             builder.buildFuture()
         }
 
-    /** `[currency]` for `/eco`, which is not gated by per-currency nodes or flags. */
-    private fun adminCurrencyArgument() =
+    /**
+     * `[currency]` for `/eco`, which is not gated by per-currency nodes or flags.
+     *
+     * @param withBonusKeywords also offer `bonus`/`nobonus`, which `/eco give` accepts in this slot.
+     */
+    private fun adminCurrencyArgument(withBonusKeywords: Boolean = false) =
         Commands.argument("currency", StringArgumentType.word()).suggests { _, builder ->
             currencies.all().forEach { builder.suggest(it.code.value) }
+            if (withBonusKeywords) EcoCommand.BONUS_KEYWORDS.keys.forEach(builder::suggest)
             builder.buildFuture()
         }
 

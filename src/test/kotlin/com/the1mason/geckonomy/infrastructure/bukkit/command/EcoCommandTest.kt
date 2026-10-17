@@ -47,6 +47,35 @@ class EcoCommandTest {
     }
 
     @Test
+    fun `every operation writes through to an online player's mirror`() {
+        // Without it a Vault shop reads the balance from before the admin touched it.
+        val eco = admin()
+        val bob = AccountId(harness.player("Bob").uniqueId)
+        givenCoins(bob, "Bob", "1000.00")
+        harness.mirror.hydrate(bob, mapOf(TestCurrencies.COINS.code to BigDecimal("1000.00")))
+
+        harness.dispatch(eco, "eco give Bob 100")
+        assertEquals(BigDecimal("1100.00"), harness.mirror.get(bob, TestCurrencies.COINS.code))
+        harness.dispatch(eco, "eco take Bob 50")
+        assertEquals(BigDecimal("1050.00"), harness.mirror.get(bob, TestCurrencies.COINS.code))
+        harness.dispatch(eco, "eco set Bob 7")
+        assertEquals(BigDecimal("7.00"), harness.mirror.get(bob, TestCurrencies.COINS.code))
+        harness.dispatch(eco, "eco reset Bob")
+        assertEquals(BigDecimal("100.00"), harness.mirror.get(bob, TestCurrencies.COINS.code))
+    }
+
+    @Test
+    fun `an offline player is not resurrected into the mirror`() {
+        val eco = admin()
+        val bob = AccountId(harness.player("Bob").uniqueId)
+        givenCoins(bob, "Bob", "1000.00")
+
+        harness.dispatch(eco, "eco give Bob 100")
+
+        assertEquals(false, harness.mirror.isMirrored(bob))
+    }
+
+    @Test
     fun `take debits the amount`() {
         val eco = admin()
         val bob = harness.player("Bob")

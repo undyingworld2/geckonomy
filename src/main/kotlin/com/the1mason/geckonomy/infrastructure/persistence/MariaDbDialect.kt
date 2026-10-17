@@ -4,6 +4,7 @@ import java.math.BigDecimal
 import java.nio.ByteBuffer
 import java.sql.PreparedStatement
 import java.sql.ResultSet
+import java.sql.SQLException
 import java.util.UUID
 
 /**
@@ -26,6 +27,10 @@ object MariaDbDialect : SqlDialect {
     override fun insertOrIgnore(table: String, columns: List<String>): String =
         "INSERT IGNORE INTO ${quote(table)} (${columns.joinToString(", ", transform = ::quote)}) " +
             "VALUES (${columns.joinToString(", ") { "?" }})"
+
+    override val lockingRead: String = " FOR UPDATE"
+
+    override fun isConstraintViolation(e: SQLException): Boolean = e.sqlState?.startsWith("23") == true
 
     override fun upsert(
         table: String,

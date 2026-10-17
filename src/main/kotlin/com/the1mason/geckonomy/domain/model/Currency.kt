@@ -27,6 +27,7 @@ import java.math.BigDecimal
  *   balance stays visible either way.
  * @property showInBaltop whether this currency appears in `/baltop`.
  * @property format display template; see LOCALIZATION.md.
+ * @property bonus the currency a deposit of this one also credits, if any (SPEC.md FR-B9).
  */
 data class Currency(
     val code: CurrencyCode,
@@ -41,6 +42,7 @@ data class Currency(
     val checkableOthers: Boolean,
     val showInBaltop: Boolean,
     val format: String,
+    val bonus: BonusRule? = null,
 ) {
 
     /**
@@ -69,6 +71,21 @@ data class Currency(
         NameRole.PLURAL -> plural
     }
 }
+
+/**
+ * A deposit of the owning currency also credits [currency], at [ratio] (SPEC.md FR-B9).
+ *
+ * Deposits only: a transfer moves money that already exists, and minting bonuses on it would let two
+ * players farm them by paying each other back and forth.
+ *
+ * @property byDefault whether a caller that does not say grants it — every Vault deposit, and a bare
+ *   `/eco give`.
+ */
+data class BonusRule(
+    val currency: CurrencyCode,
+    val ratio: BigDecimal,
+    val byDefault: Boolean,
+)
 
 /** Which display form a currency name takes for a given amount ([Currency.roleFor]). */
 enum class NameRole {

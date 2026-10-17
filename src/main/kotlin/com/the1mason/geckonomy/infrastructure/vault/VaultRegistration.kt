@@ -3,6 +3,7 @@ package com.the1mason.geckonomy.infrastructure.vault
 import com.the1mason.geckonomy.application.service.EconomyService
 import com.the1mason.geckonomy.domain.policy.RoundingPolicy
 import com.the1mason.geckonomy.domain.port.CurrencyRegistry
+import com.the1mason.geckonomy.infrastructure.balance.OnlineBalanceMirror
 import com.the1mason.geckonomy.infrastructure.i18n.FormatMoney
 import com.the1mason.geckonomy.infrastructure.i18n.MessageService
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +26,7 @@ internal class VaultRegistration(
     economy: EconomyService,
     currencies: CurrencyRegistry,
     sync: VaultSyncPath,
+    mirror: OnlineBalanceMirror,
     messages: MessageService,
     format: FormatMoney,
     rounding: () -> RoundingPolicy,
@@ -42,7 +44,7 @@ internal class VaultRegistration(
         currencies = currencies,
         sync = sync,
         responses = responses,
-        asyncEconomy = GeckonomyAsyncEconomy(economy, currencies, scope, responses, logger),
+        asyncEconomy = GeckonomyAsyncEconomy(economy, currencies, mirror, scope, responses, logger),
         formatMoney = format,
         logger = logger,
     )

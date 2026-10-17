@@ -36,7 +36,7 @@ class DepositTest {
 
         val result = deposit(ALICE, BigDecimal("25.00"), coins)
 
-        assertEquals(BigDecimal("100.00"), (result as Outcome.Success).value.amount)
+        assertEquals(BigDecimal("100.00"), (result as Outcome.Success).value.balance.amount)
         assertEquals(0, BigDecimal("100.00").compareTo(fixture.balances.get(ALICE, TestCurrencies.COINS)))
     }
 
@@ -82,7 +82,7 @@ class DepositTest {
 
         val result = deposit(ALICE, BigDecimal("3"), TestCurrencies.GEMS.code)
 
-        assertEquals(BigDecimal("3"), (result as Outcome.Success).value.amount)
+        assertEquals(BigDecimal("3"), (result as Outcome.Success).value.balance.amount)
     }
 
     @Test
@@ -91,7 +91,7 @@ class DepositTest {
 
         val result = deposit(ALICE, BigDecimal("1.005"), coins)
 
-        assertEquals(BigDecimal("1.01"), (result as Outcome.Success).value.amount)
+        assertEquals(BigDecimal("1.01"), (result as Outcome.Success).value.balance.amount)
         assertEquals(BigDecimal("1.01"), fixture.log.entries.single().delta)
     }
 

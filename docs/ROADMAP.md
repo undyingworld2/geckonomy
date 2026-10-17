@@ -316,6 +316,45 @@ leaderboard (name/balance at rank, own rank).
   5 Coins" via one/other; a Russian-client player sees Russian while others see the server default;
   number grouping matches the effective locale; the plugin enables with ICU4J isolated.
 
+### M12 — Bonus currency  ·  `tasks/M12-bonus-currency.md`
+- Per-currency `bonus:` block (`currency`, `ratio`, `by-default`): a deposit also credits the paired
+  currency, atomically, with a `BONUS` ledger row (SPEC §4.3 FR-B9/B10).
+- `/eco give … [bonus|nobonus]`; take/set/reset and transfers never touch the bonus.
+- Vault deposits follow `by-default`; the sync path mirrors the bonus balance.
+- **Depends on:** M4, M6, M7
+- **Done when:** a Vault deposit of the source currency raises the bonus balance for online and offline
+  players; `/eco give` honours both keywords; a failed bonus write leaves the deposit unwritten; `/pay`
+  mints nothing.
+- **Done:** 830 tests green, 0 skipped. No migration — the ledger's `type` column is unconstrained, so
+  `BONUS` is just a new value. `Deposit` now returns `Deposited(balance, bonus)` rather than a bare
+  balance, because the sync path needs the bonus balance to keep the mirror honest. Found on the way:
+  `asSection()` copied a list entry's nested map as a raw `Map`, invisible to `child()` — harmless until
+  a currency entry had a nested block. Also found: `/eco` had never written through to
+  `OnlineBalanceMirror`, so after an admin change a Vault plugin read an online player's old balance
+  until they relogged — it now does, as `VaultSyncPath` always has, and so does `/pay`. Both had leaned
+  on a doc claim that SQLite "cannot go stale", which was only true of other *servers*, not of our own
+  write paths that bypassed the mirror. `MirrorRefresher` now re-reads online balances every
+  `settings.mirror-refresh-seconds` as a backstop, storing a read only if no write overtook it.
+
+### M13 — Balance write path rework  ·  `tasks/M13-write-path.md`
+- Prompted by a production incident: concurrent deposits to one player deadlocked on MariaDB (1213) and
+  the losing deposit was dropped. The cause dates from M2: `adjust`'s `INSERT IGNORE` seed took a shared
+  lock that its `UPDATE` then had to upgrade (DATA_MODEL.md §4).
+- Lock first (`SELECT … FOR UPDATE`) under READ COMMITTED; multi-row writes lock in one global order;
+  one writer per account per server (`AccountWriteGate`); conflicts retried only when certainly rolled
+  back; a commit of unknown outcome settled by its ledger row (SPEC §5 NFR-9).
+- Sync Vault writes: the timeout bounds the wait, never the write. The async API writes the mirror.
+  `MirrorRefresher` reads in one query per currency.
+- **Depends on:** M3, M4, M6, M12
+- **Done when:** concurrent deposits/transfers/withdrawals from two servers on one MariaDB lose nothing,
+  overdraw nothing, and leave InnoDB's deadlock counter unchanged; a timed-out Vault write still commits
+  and says so.
+- **Done (code):** 841 tests green, 0 skipped. `MariaDbConcurrencyTest` was written red first against the
+  M12 code (234 deadlocks across its scenarios) and is green with `Innodb_deadlocks` flat. No migration.
+  Deviation from the plan: no op-id scheme. Only definitely-rolled-back conflicts are retried, so the one
+  ambiguous case, a failed commit, is identified by the ledger row the transaction already wrote. **Live
+  verification on the network is still to do.**
+
 ---
 
 ## Future (post-v1)

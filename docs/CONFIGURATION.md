@@ -51,6 +51,10 @@ currencies:
     balance-check-others: false
     show-in-baltop: true
     format: "<amount> <currency>"
+    # bonus:              # optional (M12): deposits of gems also credit another currency
+    #   currency: "bonuses"   # must be another configured currency
+    #   ratio: 1
+    #   by-default: true
 
 # ── Settings ────────────────────────────────────────────────────────────
 settings:
@@ -62,6 +66,7 @@ settings:
   rounding-mode: HALF_UP  # any java.math.RoundingMode
   keep-transaction-history: true
   baltop-size: 10
+  mirror-refresh-seconds: 60   # re-read online players' balances this often (min 5)
 
 # ── Placeholders ────────────────────────────────────────────────────────
 # The PlaceholderAPI expansion (%geckonomy_...%). Only used when PlaceholderAPI is
@@ -109,6 +114,9 @@ placeholders:
 | `balance-check-others` | bool | `true` | If `false`, players can't view others' balance in this currency (own balance still visible). |
 | `show-in-baltop` | bool | `true` | If `false`, excluded from `/baltop`. |
 | `format` | string | `<symbol><amount>` | Display template; placeholders `<symbol>`, `<amount>`, `<currency>`. **MiniMessage** (M10): the template itself, plus `<symbol>`/`<currency>`, are rendered as MiniMessage — see `LOCALIZATION.md §4`. |
+| `bonus.currency` | string | — | (M12) Another configured currency that every **deposit** of this one also credits — Vault deposits and `/eco give`. Transfers, `/eco take` and `/eco set`/`reset` never touch it. Omit the block for no bonus. See `SPEC.md` FR-B9/B10. |
+| `bonus.ratio` | decimal > 0 | `1` | Bonus credited = amount × ratio, rounded to the bonus currency's `fractional-digits`. A bonus that rounds to zero is skipped. |
+| `bonus.by-default` | bool | `true` | Whether a deposit that does not say grants the bonus — every Vault deposit and a plain `/eco give`. `false` grants it only on `/eco give … bonus`; `true` can be withheld with `/eco give … nobonus`. |
 
 ### `settings`
 | Key | Type | Default | Notes |
@@ -119,6 +127,7 @@ placeholders:
 | `rounding-mode` | enum | `HALF_UP` | `java.math.RoundingMode` name. |
 | `keep-transaction-history` | bool | `true` | Retain ledger on account delete. |
 | `baltop-size` | int | 10 | `/baltop` row count. Also bounds `%geckonomy_baltop_*%`. |
+| `mirror-refresh-seconds` | int 5–86400 | 60 | How often online players' cached balances are re-read from the database. Every write Geckonomy makes updates the cache at once; this catches what bypasses it — another server on a shared database, a manual SQL edit. Each cycle is one query per currency for all online players (M13). Reloadable. |
 | `claim-vault-economy` | bool | `true` | Make Geckonomy the **only** economy Vault answers with. When true, it unregisters any other Vault economy provider — at startup and if one registers later — so shops and similar plugins can never bind to the wrong one. This is the switch for **EssentialsX**, whose economy does not stand down on its own and has no setting to make it. Set `false` only if you deliberately run another economy plugin alongside Geckonomy. Reloadable. |
 
 ### `placeholders`
@@ -165,9 +174,13 @@ child — which is what makes granting `geckonomy.pay.*` work on a server with n
 - `starting-balance` may not be negative unless `allow-overdraft` is true. One finer than the
   currency's `fractional-digits` is rounded (per `rounding-mode`) with a warning, not rejected.
 - `scope` ∈ {`network`, `server`}.
+- `bonus.currency` names another configured currency, not itself, and not one with a `bonus` of its
+  own (no chains); `bonus.ratio > 0`. A currency coded `bonus` or `nobonus` **warns**: it takes
+  `/eco give <player> <amount> bonus` for itself, and the keyword is still reachable by naming the
+  currency first.
 - `settings.server-id` non-empty (warn if left at `default` while any `network` currency exists on a
   shared DB, since collisions across servers must be avoided).
-- `rounding-mode` is a valid `RoundingMode`; `baltop-size ≥ 1`.
+- `rounding-mode` is a valid `RoundingMode`; `baltop-size ≥ 1`; `mirror-refresh-seconds` ∈ 5–86400.
 - `placeholders.baltop-refresh-seconds` and `placeholders.offline-cache-seconds` ∈ 5–86400. The floor
   is the point: `0` would rebuild the snapshot in a tight loop against the database forever.
 - A currency `code` that collides with a placeholder keyword **warns**, and does not fail: it is

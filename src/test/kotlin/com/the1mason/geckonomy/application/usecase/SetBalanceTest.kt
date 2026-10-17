@@ -77,7 +77,8 @@ class SetBalanceTest {
 
         setBalanceWith(fixture)(ALICE, BigDecimal("5"), TestCurrencies.GEMS.code)
 
-        assertEquals(BigDecimal("5"), fixture.log.entries.single().delta)
+        // By value: the lock creates the row at storage scale, as an existing row is read (see above).
+        assertEquals(0, BigDecimal("5").compareTo(fixture.log.entries.single().delta))
     }
 
     @Test

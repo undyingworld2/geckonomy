@@ -4,6 +4,7 @@ import com.the1mason.geckonomy.domain.model.AccountId
 import java.math.BigDecimal
 import java.sql.PreparedStatement
 import java.sql.ResultSet
+import java.sql.SQLException
 import java.util.UUID
 
 /**
@@ -23,13 +24,31 @@ interface SqlDialect {
     /**
      * `INSERT` that does nothing when the row already exists.
      *
-     * Spelled `INSERT OR IGNORE` by SQLite and `INSERT IGNORE` by MariaDB. Used to seed a row before
-     * adjusting it, and to make account creation idempotent.
+     * Spelled `INSERT OR IGNORE` by SQLite and `INSERT IGNORE` by MariaDB. Used to make account
+     * creation idempotent.
+     *
+     * **Never on a row a transaction goes on to update.** On InnoDB an ignored duplicate takes a
+     * *shared* lock on the existing row, and an `UPDATE` after it needs an exclusive one: two
+     * transactions doing both each hold S and wait for X, and InnoDB kills one. That was M2's balance
+     * seed, and the production deadlock M13 removed (DATA_MODEL.md §4).
      *
      * @param table unquoted table name.
      * @param columns unquoted column names, in the order the placeholders bind.
      */
     fun insertOrIgnore(table: String, columns: List<String>): String
+
+    /**
+     * Appended to a `SELECT` to make it take the row's write lock: `" FOR UPDATE"` on MariaDB, nothing
+     * on SQLite, which has no row locks and whose single IO thread already serializes every writer.
+     */
+    val lockingRead: String
+
+    /**
+     * Whether [e] is an integrity-constraint violation — a duplicate key, or a foreign key with no
+     * parent. Both mean a concurrent transaction changed the rows this one assumed, so the caller
+     * retries rather than reports. SQLite reports these by error code; MariaDB by SQLState class 23.
+     */
+    fun isConstraintViolation(e: SQLException): Boolean
 
     /**
      * `INSERT` that overwrites [updateColumns] when the row already exists — the upsert of

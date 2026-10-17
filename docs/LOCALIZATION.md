@@ -52,8 +52,12 @@ error:
   no-currency-permission: "<prefix><red>You can't use <white><currency></white> here.</red>"
   not-transferable: "<prefix><red><white><currency></white> can't be paid to other players.</red>"
   others-hidden: "<prefix><red>You can't view others' <white><currency></white> balance.</red>"
+  # M12: `/eco give … bonus` on a currency with no `bonus:` block.
+  no-bonus-currency: "<prefix><red><white><currency></white> has no bonus currency.</red>"
 admin:
   given: "<prefix><green>Gave <white><formatted></white> to <white><target></white>.</green>"
+  # M12: used instead of `given` when a bonus currency was credited too.
+  given-bonus: "<prefix><green>Gave <white><formatted></white> (+<white><bonus></white>) to <white><target></white>.</green>"
   set: "<prefix><green>Set <white><target></white>'s balance to <white><formatted></white>.</green>"
   reloaded: "<prefix><green>Configuration reloaded.</green>"
 baltop:
