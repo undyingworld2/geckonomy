@@ -17,3 +17,10 @@ misrepresent the cost.
 `UnitOfWork.transaction` hands the block a `TxContext` (`accounts`, `balance`, `log`) — the same ports,
 but bound to the enclosing transaction. Ports captured from *outside* the block do not participate in
 it; that distinction is the whole reason the type exists.
+
+Since M13, `transaction(writes = …)` also names the accounts the block may change, so the SQL store can
+queue our own writers to one account instead of letting them contend for its row lock — and the block
+**may run more than once**, because a transaction lost to a lock conflict is retried. Anything it does
+outside its `TxContext` would happen once per attempt. `BalanceRepository.lock(rows)` takes several
+rows' write locks in one global order, whatever order they are named in, which is what keeps opposite
+transfers on two servers from deadlocking; `getAll` reads many accounts in one query.

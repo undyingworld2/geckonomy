@@ -127,7 +127,7 @@ placeholders:
 | `rounding-mode` | enum | `HALF_UP` | `java.math.RoundingMode` name. |
 | `keep-transaction-history` | bool | `true` | Retain ledger on account delete. |
 | `baltop-size` | int | 10 | `/baltop` row count. Also bounds `%geckonomy_baltop_*%`. |
-| `mirror-refresh-seconds` | int 5–86400 | 60 | How often online players' cached balances are re-read from the database. Every write Geckonomy makes updates the cache at once; this catches what bypasses it — another server on a shared database, the async Vault API, a manual SQL edit. Each cycle is one read per online player per currency. Reloadable. |
+| `mirror-refresh-seconds` | int 5–86400 | 60 | How often online players' cached balances are re-read from the database. Every write Geckonomy makes updates the cache at once; this catches what bypasses it — another server on a shared database, a manual SQL edit. Each cycle is one query per currency for all online players (M13). Reloadable. |
 | `claim-vault-economy` | bool | `true` | Make Geckonomy the **only** economy Vault answers with. When true, it unregisters any other Vault economy provider — at startup and if one registers later — so shops and similar plugins can never bind to the wrong one. This is the switch for **EssentialsX**, whose economy does not stand down on its own and has no setting to make it. Set `false` only if you deliberately run another economy plugin alongside Geckonomy. Reloadable. |
 
 ### `placeholders`

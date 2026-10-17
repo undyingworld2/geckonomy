@@ -27,6 +27,11 @@ reasons and the three MockBukkit rules that come with it.
 arguments cannot disambiguate by content — Brigadier matches the first child greedily — so the handler
 decides.
 
+`/eco give <player> <amount> [currency] [bonus|nobonus]` (M12) has the same shape: `/eco give Bob 100
+bonus` lands the keyword in the currency slot, so `EcoCommand` decides — a word naming a currency is a
+currency, otherwise a keyword means the default currency. Only `give` can grant a bonus; `take`, `set`
+and `reset` never touch the bonus currency.
+
 `CurrencyAccess` answers "may this player use this currency for this action", and is the *single* source
 for both the handlers and tab completion: offering a currency that is then refused is a bug the player
 sees, and one class forecloses it. It resolves two independent gates — the config flags

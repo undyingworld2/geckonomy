@@ -11,6 +11,10 @@ dumb. `Money` comes back out, because it carries the `Currency` `infrastructure.
 to render it — that renderer is handed to callers directly rather than through this facade (M10; see
 `application/README.md`), so `EconomyService` itself has no formatting method.
 
+`deposit` takes `bonus: Boolean?` (M12): `null` — what every Vault deposit passes — follows the
+currency's `by-default`, `true`/`false` force it. `balances(ids, currency)` (M13) reads many accounts in
+one query, for `MirrorRefresher`.
+
 `currencies()` and `defaultCurrency()` are deliberately **not** `suspend` and return no `Outcome`: the
 registry is an in-memory map. Dressing a map lookup as an async fallible call would tell every caller
 to treat it like a database round trip.

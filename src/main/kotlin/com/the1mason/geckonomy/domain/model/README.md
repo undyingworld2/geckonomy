@@ -1,7 +1,11 @@
 # domain.model
 
-Entities and value objects: `AccountId`, `Account`, `AccountType`, `Currency`, `CurrencyCode`, `Money`,
-`Balance`, `Transaction`, `TransactionType`.
+Entities and value objects: `AccountId`, `Account`, `AccountType`, `Currency`, `BonusRule`, `CurrencyCode`,
+`Money`, `Balance`, `Transaction`, `TransactionType`.
+
+`Currency.bonus: BonusRule?` (M12) pairs a currency with another that every deposit also credits, at
+`ratio`; `byDefault` decides for a caller that does not say. The bonus leg is ledgered as
+`TransactionType.BONUS` — the `type` column is free text, so it needed no migration.
 
 Immutable (`val`), invariants enforced at construction. Amounts are `BigDecimal`. See
 `docs/DOMAIN_MODEL.md`.

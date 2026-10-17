@@ -148,7 +148,7 @@ plugin that surfaces `errorMessage`. It falls back to the UUID when no name coul
 | `canWithdraw(...)` | pre-flight `Withdraw` check (no mutation) → `EconomyResponse` |
 | `withdraw(...)` | `Withdraw`, awaited; then the returned balance into the mirror |
 | `canDeposit(...)` | pre-flight `Deposit` check |
-| `deposit(...)` | `Deposit`, awaited; then the returned balance into the mirror |
+| `deposit(...)` | `Deposit` (bonus per the currency's `by-default`, SPEC FR-B9), awaited; then the returned balance — and the bonus currency's, when one was credited — into the mirror. The response describes the deposited currency only |
 
 ### Transfers
 | Vault method | Mapping |
@@ -168,8 +168,9 @@ All of the following return `false` / empty list / `NOT_IMPLEMENTED` and log at 
 ## 6. AsyncEconomy
 
 `GeckonomyAsyncEconomy` mirrors the sync methods but returns `CompletableFuture`s and talks to the
-`EconomyService` (DB) directly — **no mirror**, fully async. Integrators that check `supportsAsync()`
-get exact, un-cached values. Futures are produced with `kotlinx.coroutines.future.future { }` on the
+`EconomyService` (DB) directly — it never *reads* the mirror, so integrators that check `supportsAsync()`
+get exact, un-cached values. It does *write* every committed balance into it (M13): set, withdraw,
+deposit (plus its bonus) and both legs of a transfer, as the sync path, `/eco` and `/pay` do. Futures are produced with `kotlinx.coroutines.future.future { }` on the
 plugin scope, so a disable cancels them rather than leaking past the classloader.
 
 ## 7. Sync path & the online mirror
@@ -183,8 +184,10 @@ The sync `Economy` interface returns values immediately and is called on the mai
   only when `scope == NETWORK && storage == MARIADB`. Separately, `MirrorRefresher` re-reads every online
   player's balances every `settings.mirror-refresh-seconds`, catching changes no write path reported
   (`ARCHITECTURE.md §4`).
-- Sync **writes await the use case** under a bounded timeout and then store the balance the database
-  actually returned. The adapter never decides the outcome itself — currency resolution, amount
+- Sync **writes go through the use case** and store the balance the database actually returned. The
+  main thread waits a bounded time for the result; **the timeout bounds the wait, never the write**
+  (M13). A timed-out caller hears FAILURE, but the write runs to completion, mirrors what it committed
+  and logs `… COMMITTED after its caller was told it failed` (or that it did not apply). The adapter never decides the outcome itself — currency resolution, amount
   validation, rounding and overdraft live in the use case, and duplicating them here is how the two
   paths drift apart.
 - Calls for **un-mirrored** accounts (offline, or not yet hydrated) do a bounded blocking DB read with a
@@ -236,7 +239,7 @@ already have the answer to. `LegacyVaultEconomyProvider` implements the interfac
 | `getBalance(...)` (all overloads) | `GetBalance` (default currency); mirror, or a bounded read when un-mirrored (§7) |
 | `has(...)` (all overloads) | `Has` (default currency) |
 | `withdrawPlayer(...)` (all overloads) | `Withdraw` → legacy `EconomyResponse` |
-| `depositPlayer(...)` (all overloads) | `Deposit` → legacy `EconomyResponse` |
+| `depositPlayer(...)` (all overloads) | `Deposit` (bonus per `by-default`) → legacy `EconomyResponse` |
 | `createBank`, `deleteBank`, `bankBalance`, `bankHas`, `bankWithdraw`, `bankDeposit`, `isBankOwner`, `isBankMember` | `EconomyResponse(0,0,NOT_IMPLEMENTED,"Banks not supported")` |
 | `getBanks()` | empty list |
 

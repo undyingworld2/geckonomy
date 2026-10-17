@@ -35,4 +35,18 @@ that catches the substitution.
 did not originally show: a balance change whose ledger row fails to write makes FR-B7 silently false.
 They need no `Abort`, because a refusal there has nothing written to undo. Only `Transfer` does.
 
+**`Deposit` credits the bonus currency too** (M12, SPEC FR-B9/B10). The bonus currency is resolved and
+the amount rounded *before* the transaction opens (a bonus that rounds to zero is dropped), then both
+rows are locked together and written in the same transaction, with a `BONUS` ledger row carrying the
+deposit's attribution — both commit or neither. `Withdraw`, `SetBalance`, `Transfer` and
+`CreateAccount`'s starting balances never earn one: a transfer moves money that already exists, and
+minting bonuses on it would make them farmable.
+
+**A transaction block may run more than once** (M13). `SqlUnitOfWork` retries a block that lost a lock
+conflict, so everything a use case does inside `transaction { }` goes through its `TxContext` and
+nothing else. Each passes `writes =` the accounts it changes, and every multi-row writer (`Transfer`,
+a `Deposit` with a bonus, `SetBalance`'s read-then-write) calls `ctx.balance.lock(...)` first, so rows
+are taken in the store's one global order. `GetBalance.many` is the one-query read behind
+`MirrorRefresher`.
+
 Arrived with **M4**.

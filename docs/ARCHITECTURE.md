@@ -28,8 +28,8 @@ outer layers. Ports live in `domain.port`; their implementations live in `infras
 ```
 com.the1mason.geckonomy
 ├── domain
-│   ├── model      AccountId, Account, AccountType, Currency, CurrencyCode, Money, Balance,
-│   │              Transaction, TransactionType
+│   ├── model      AccountId, Account, AccountType, Currency, BonusRule, CurrencyCode, Money,
+│   │              Balance, Transaction, TransactionType
 │   ├── policy     RoundingPolicy, OverdraftPolicy, CurrencyValidation
 │   └── port       AccountRepository, BalanceRepository, TransactionLog, CurrencyRegistry, UnitOfWork
 ├── application
@@ -39,19 +39,21 @@ com.the1mason.geckonomy
 │   │              FindAccountName, ListAccountNames, CanDeposit, CanWithdraw;
 │   │              StorageGuard, Amounts, TransactionFactory (internal, shared)
 │   ├── result     Outcome (sealed), OperationResult, TransferResult, Transferred,
-│   │              EconomyError (sealed)
+│   │              DepositResult, Deposited, BonusCredit, EconomyError (sealed)
 │   ├── Attribution.kt
 │   └── Throttle.kt   "at most one warning per interval", for the logs on hot paths
 ├── infrastructure
 │   ├── persistence  DataSourceFactory, SqlDialect, SqliteDialect, MariaDbDialect,
 │   │                MigrationRunner, SqlAccountRepository, SqlBalanceRepository,
-│   │                SqlTransactionLog, SqlUnitOfWork, IoDispatcher
+│   │                SqlTransactionLog, SqlUnitOfWork, AccountWriteGate, WriteConflict,
+│   │                IoDispatcher
 │   ├── config       GeckonomyConfig, ConfigLoader, StorageConfig, CurrencyConfig, SettingsConfig
 │   ├── i18n         MessageService, MiniMessageRenderer, Placeholders, LanguageRepository,
 │   │                MessageKey, ErrorMessages, FormatMoney, CurrencyNames
+│   ├── balance      OnlineBalanceMirror, OfflineBalanceCache, MirrorRefresher
 │   ├── vault        VaultUnlockedEconomyProvider (v2), LegacyVaultEconomyProvider (v1),
 │   │                GeckonomyAsyncEconomy, ResponseMapper, LegacyResponseMapper,
-│   │                OnlineBalanceMirror, PlayerResolver, VaultRegistration, VaultSyncPath
+│   │                PlayerResolver, VaultRegistration, VaultSyncPath
 │   └── bukkit       BukkitMainThread, PlayerTargets, CurrencyAccess,
 │                    command/{GeckonomyCommands, GeckonomyPermissions, CommandReplies,
 │                             Balance,Pay,Baltop,Eco,Geckonomy Command},
@@ -87,6 +89,11 @@ interface BalanceRepository {
     // not an exception, because insufficient funds is routine (CODING_STANDARDS §4). Seeds a missing
     // row at zero. See DATA_MODEL §4 for how the guard stays atomic.
     suspend fun adjust(id: AccountId, currency: Currency, delta: BigDecimal): BigDecimal?
+    // M13: X-locks every row for the rest of the transaction, in one global order (account id, then
+    // currency) whatever order the caller names them in. Multi-row writers call it first.
+    suspend fun lock(rows: Collection<Pair<AccountId, Currency>>)
+    // M13: one query for many accounts (MirrorRefresher); an id with no row is absent.
+    suspend fun getAll(ids: Collection<AccountId>, currency: Currency): Map<AccountId, BigDecimal>
     suspend fun top(currency: Currency, limit: Int): List<Pair<AccountId, BigDecimal>>
 }
 
@@ -105,7 +112,9 @@ interface CurrencyRegistry {           // in-memory, loaded from config
 }
 
 interface UnitOfWork {                  // transactional boundary for multi-step ops (transfer)
-    suspend fun <T> transaction(block: suspend (TxContext) -> T): T
+    // `writes` names the accounts the block may change; the SQL store runs writers to one account in
+    // turn. The block may run more than once (conflict retry, M13), so it touches only its TxContext.
+    suspend fun <T> transaction(writes: Set<AccountId> = emptySet(), block: suspend (TxContext) -> T): T
 }
 ```
 
@@ -123,7 +132,8 @@ in `infrastructure` — domain/application never see a server id. See `DATA_MODE
   all DB work. Nothing in `application` or `infrastructure.persistence` runs on the Bukkit main thread.
 - Commands/listeners launch a coroutine on a plugin `CoroutineScope`, await the use case, then hop back
   to the main thread (`BukkitMainThread`) to send messages / interact with the Bukkit API.
-- **Transfers** run inside `UnitOfWork.transaction { }` → one JDBC transaction.
+- **Transfers**, and a deposit together with its bonus (M12), run inside `UnitOfWork.transaction { }`
+  → one JDBC transaction.
 - **Writers to one account queue in memory** (M13). `UnitOfWork.transaction(writes = …)` names the
   accounts a transaction changes, and `SqlUnitOfWork` runs two that share one strictly in turn
   (`AccountWriteGate`, striped mutexes). They wait as suspended coroutines, not as IO threads holding
@@ -179,8 +189,8 @@ refresh uses the same rule.
 > main-thread DB read on every third-party call, to protect against a staleness that configuration
 > cannot produce. When Redis sync lands, MariaDB's refresh can become pub/sub invalidation.
 
-**Writes await the use case** under a bounded timeout, then put the authoritative returned balance into
-the mirror. The optimistic alternative — decide in the adapter, dispatch the DB write async — would have
+**Writes go through the use case**, and put the authoritative returned balance into the mirror (for a
+deposit, the bonus currency's too). The optimistic alternative — decide in the adapter, dispatch the DB write async — would have
 to re-implement four rules that exist exactly once already: currency resolution, `Amounts.positive`'s
 double sign-check (`0.004` is positive going in and `0.00` after rounding to a 2-digit currency), the
 reloadable `rounding-mode`, and `OverdraftPolicy.permits`. It would also report SUCCESS for a write the

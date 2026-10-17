@@ -15,7 +15,7 @@ import kotlin.time.Duration
  * Re-reads every online player's balances into [OnlineBalanceMirror] on a timer.
  *
  * Every write path we own updates the mirror itself; this catches the ones that cannot — another server
- * writing a shared database, the async Vault API, a manual SQL fix. Without it such a change shows only
+ * writing a shared database, a manual SQL fix. Without it such a change shows only
  * after the player's next sync write or relog, and on SQLite or a `server` currency nothing else ever
  * refreshes the entry.
  *
