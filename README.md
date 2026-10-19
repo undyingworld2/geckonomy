@@ -25,7 +25,7 @@ without knowing anything about it.
 
 ## Install
 
-1. Drop `geckonomy-1.0.0.jar` into `plugins/`.
+1. Drop `geckonomy-1.1.0.jar` into `plugins/`.
 2. Start the server. **The first start needs internet access** — Geckonomy downloads its own libraries
    (Kotlin, HikariCP, the database driver) instead of bundling them, which keeps the jar ~0.5 MB rather
    than ~20 MB. They are cached under the server's `libraries/` folder; later starts are offline.
@@ -176,7 +176,7 @@ The method-by-method mapping is in [docs/VAULT_INTEGRATION.md](docs/VAULT_INTEGR
 Building it yourself needs JDK 25:
 
 ```bash
-./mvnw clean package      # -> target/geckonomy-1.0.0.jar
+./mvnw clean package      # -> target/geckonomy-1.1.0.jar
 ```
 
 The full test suite runs on every build. Two suites exercise MariaDB through Testcontainers and are
