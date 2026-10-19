@@ -5,7 +5,7 @@ version: '${project.version}'
 
 main: com.the1mason.geckonomy.Geckonomy
 loader: com.the1mason.geckonomy.GeckonomyLoader
-api-version: '26.1.2'
+api-version: '26.3'
 load: STARTUP
 
 authors: [ the1mason ]

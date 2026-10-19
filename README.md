@@ -14,7 +14,7 @@ without knowing anything about it.
 
 | | |
 |---|---|
-| Server | Paper 26.1.2+ (`paper-plugin.yml`, Brigadier — Spigot is not supported) |
+| Server | Paper 26.3+ (`paper-plugin.yml`, Brigadier — Spigot is not supported) |
 | Java | 25+ |
 | VaultUnlocked | Optional, but needed for any other plugin to see your economy |
 | PlaceholderAPI | Optional; enables the `geckonomy` placeholders (see below) |
